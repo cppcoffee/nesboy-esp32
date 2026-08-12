@@ -1,0 +1,8 @@
+*.rom
+*.nes
+*.o
+*.a
+
+build/
+
+.cache/neocmakelsp/

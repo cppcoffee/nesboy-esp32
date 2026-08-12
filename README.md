@@ -1,0 +1,191 @@
+# nesboy-esp32
+
+Minimal ESP-IDF NES, Game Boy, and Game Boy Color emulator for ESP32-S3.
+
+NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, and `.gbc` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo` and `gnuboy` cores from `retro-goretro-go`.
+
+## Playing Games from the SD Card
+
+The ROM used at runtime is chosen from the SD card at boot. Changing games is now just a file copy — no rebuild needed.
+
+### Setup
+
+1. **Format the SD card as FAT32** (most cards come pre-formatted; a 32 GB card works fine). The ESP-IDF FATFS in this build does *not* support exFAT, so exFAT-formatted cards must be reformatted to FAT32 first.
+2. **Copy `.nes`, `.gb`, or `.gbc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed. Other files are hidden from the browser.
+3. Insert the card and power on the board.
+
+### Using the browser
+
+The browser appears at boot, listing directories and `.nes`, `.gb`, and `.gbc` ROM files (directories first, then files, alphabetically; extension matching is case-insensitive). It handles FAT filesystems that report directory entries as `DT_UNKNOWN` and supports up to 1024 visible entries per folder. It is a one-shot startup picker: after a ROM is selected, the browser is gone for the rest of the session — to pick another game, reset/re-power the ESP32.
+
+| Button | Action |
+| --- | --- |
+| Up / Down | Move the cursor (holds auto-repeat) |
+| A / Right | Enter a folder, or select the highlighted ROM and start the game |
+| B / Left / Select | Go up to the parent folder (no action at the root) |
+| Start | Refresh the current folder |
+
+### Wiring
+
+| MicroSD breakout | ESP32-S3 GPIO |
+| --- | ---: |
+| CS | 14 |
+| MOSI | 13 |
+| CLK | 12 |
+| MISO | 11 |
+| 3.3 V | 3.3 V |
+| GND | GND |
+
+The SD card runs on a separate SPI bus (**SPI3_HOST**) from the LCD (**SPI2_HOST**), at up to 40 MHz (the exact speed is negotiated with the card and reported at boot). GPIO11–14 are plain GPIOs on the ESP32-S3, so the pull-up resistors on the breakout do not interfere with boot — the classic-ESP32 "GPIO12/MTDI strapping" warning does **not** apply to this board.
+
+### No embedded ROM
+
+There is no fallback ROM compiled into the firmware: a game must always be picked from the SD card. If the card is missing, unreadable, or the selection fails, the device shows an error on the screen and halts — insert the card and reset.
+
+### Game Boy notes
+
+- `.gb` and `.gbc` use the `gnuboy` core. CGB-capable cartridges automatically run in color mode.
+- The native 160×144 image is scaled to 240×216 with an exact nearest-neighbor 3:2 expansion and centered on the 240×240 display. The scaler expands each two-pixel pair directly and copies duplicate rows instead of recalculating all 51,840 output pixels.
+- Stereo audio uses the same 48 kHz I2S output and volume controls as NES.
+- Battery-backed RAM is loaded from a `.sav` file beside the ROM and automatically saved after it changes.
+- The dedicated Rewind button works for GB and GBC games as well as NES.
+
+## Flashing / Rebuilding
+
+1. **Build** — With the ESP-IDF environment loaded, run:
+
+   ```sh
+   idf.py set-target esp32s3
+   idf.py build
+   ```
+
+2. **Flash & monitor** — Replace the serial port with your actual device:
+
+   ```sh
+   idf.py -p /dev/tty.usbmodemXXXX flash monitor
+   ```
+
+### Notes
+
+- Supported ROM formats are `.nes`, `.gb`, and `.gbc`; compressed archives are not supported.
+- If the screen stays white or black after selecting a ROM, the ROM may be incompatible with the selected core.
+
+## Build
+
+Prerequisite: ESP-IDF environment loaded.
+
+```sh
+idf.py set-target esp32s3
+idf.py build
+idf.py -p /dev/tty.usbmodemXXXX flash monitor
+```
+
+## Rewind
+
+For NES, GB, and GBC games, a dedicated **Rewind** button (GPIO 8, active-low) scrubs the game backward while held. The longer you hold it, the farther back it goes, in roughly 1-second steps; releasing the button stops the rewind and continues from the restored point. At the oldest snapshot the playback wraps around and cycles back to the newest one, so holding the button keeps looping through the ring.
+
+While the button is held, normal gameplay and audio output are paused. Each rewind step restores an older snapshot, previews a frame, and restores the snapshot again so gameplay continues from the selected point when the button is released.
+
+Internally the emulator captures one in-memory state snapshot every 3 seconds into a 6-slot ring buffer (about 18 seconds of history). NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation, with automatic fallback to internal RAM if PSRAM fails. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
+
+### Memory lifecycle
+
+The boot-time browser supports up to 1024 directories/ROMs per folder and allocates about 129 KiB for that entry list plus a 112.5 KiB 240×240 RGB565 UI framebuffer in PSRAM. Both allocations are freed when a ROM is selected, before emulator and rewind buffers are allocated. The UI framebuffer is recreated only if a later ROM-load error must be displayed.
+
+Runtime allocations are intentionally retained: framebuffer/audio memory, emulated WRAM/VRAM/cartridge RAM, active rewind slots, and gnuboy's ROM-bank cache are all used while playing. GBC ROM banks are cached in PSRAM (up to 128 preloaded 16 KB banks, about 2 MB) to avoid SD-card stalls; reducing that cache would trade memory for possible frame/audio hiccups rather than being a safe deallocation.
+
+## Save States
+
+Both emulator cores expose save-state serializers for CPU, RAM, video, mapper, and battery-backed cartridge state. Two button combos persist that state to the SD card and restore it:
+
+| Combo | Action | OSD feedback |
+| --- | --- | --- |
+| **Start + Select** | Save the current state to `<rom>.state` beside the ROM | `SAVED` |
+| **Rewind + Select** | Load the state back from `<rom>.state` | `LOADED` / `NO SAVE` |
+
+Both combos are debounced for ~5 frames and trigger exactly once per press, regardless of which key was pressed first. The OSD text appears at the bottom of the screen for about 1 second with a typewriter reveal animation.
+
+Details:
+
+- The state file is written next to the ROM on the SD card (e.g. `smb.nes` → `smb.nes.state`). It is overwritten on each save and kept until the next save, so you can load it any number of times — a fresh game is always one *not* pressing the load combo away. `.state` files are hidden from the ROM browser.
+- Loading replaces the running game with the saved snapshot and clears the rewind history, so holding Rewind afterwards cannot step back into pre-load gameplay. NES SNSS files are about 7–15 KB (instant write); GB/GBC snapshots are 28–180 KB depending on cartridge RAM, so a brief audio pause may be audible during the worst-case write.
+- **NES note:** NES games currently have no `.sav` battery file — the save-state combo is the *only* persistence for battery-backed games (e.g. Zelda) across power-off. The persistent SNSS state format includes SRAM, so a `SAVED` snapshot captures it.
+- **GB/GBC note:** the state also includes battery RAM, and `gnuboy_load_state_mem` marks the restored SRAM dirty, so the next periodic auto-save syncs it into the `.sav` file.
+- Holding Rewind and pressing Select loads instead of rewinding; the load takes priority over rewind scrubbing for that press.
+
+## On-Screen Controls
+
+Hold **Start** and press a direction to adjust settings in real time. An on-screen indicator (red bar = volume, blue bar = brightness) appears at the bottom of the screen for about 1 second after each change.
+
+| Hold Start + | Adjustment | Step |
+| --- | --- | ---: |
+| Up | Volume up | +1% |
+| Down | Volume down | –1% |
+| Left | Brightness down | –2% |
+| Right | Brightness up | +2% |
+
+Volume and brightness both clamp to 0–100%. The default volume is set in `main/app_config.h` (`AUDIO_VOLUME_PERCENT`, default 15). Brightness defaults to 85%.
+
+The backlight brightness is implemented with LEDC PWM (5 kHz, 8-bit). The volume scaling is applied sample-by-sample in the audio DMA task with no audible artifacts.
+
+Holding a direction continuously repeats the adjustment after a short delay (~330 ms) at a rate of roughly 100 ms per step.
+
+## Frame Statistics
+
+User-configurable build macros are kept in `main/app_config.h`. FPS logging is disabled by default so the timing calls do not add overhead. To enable it, change the macro there and rebuild:
+
+```c
+#define NES_ENABLE_FRAME_STATS 1
+```
+
+When enabled, one summary is printed every 600 frames (about 10 seconds) for both NES and GB/GBC. The original Game Boy timing is about 59.73 FPS, so a healthy GB/GBC result is approximately 59.7 FPS rather than exactly 60.0. Measured on the N16R8 dev board, NES holds a steady 60 FPS:
+
+```text
+fps=60.0 emulate=15.60ms max=16.13ms audio_wait=1.04ms
+```
+
+Each 600-frame window measures 60.0–60.4 FPS. `emulate` (per-frame emulation time, ~15.5 ms) stays comfortably under the 16.67 ms frame budget, with `audio_wait` (time waiting on the audio queue) around 1 ms — the audio queue backpressure is what paces the loop at exactly 60 FPS.
+
+The full 240×240 screen is filled each frame (NES overscan is not cropped) using two 120-line DMA chunks with double buffering; keeping the chunk count at two is what preserves the 60 FPS budget.
+
+Set `NES_ENABLE_FRAME_STATS` back to `0` for normal builds. The counters, timing, and log formatting are implemented separately in `main/frame_stats.c`; the emulation loop only marks the three frame phases.
+
+## Hardware
+
+The current wiring is defined in `main/pins.h`:
+
+| Device | Signal | ESP32-S3 GPIO |
+| --- | --- | ---: |
+| ST7789 | SCLK | 4 |
+| ST7789 | MOSI / SDA | 5 |
+| ST7789 | RESET | 6 |
+| ST7789 | DC | 7 |
+| ST7789 | CS | 15 |
+| ST7789 | Backlight (PWM) | 16 |
+| HT517 DIx mode C | DI2 / BCLK | 40 |
+| HT517 DIx mode C | DI0 / WS / LRCK | 41 |
+| HT517 DIx mode C | DI1 / SDIN | 42 |
+| microSD (SPI3) | CS | 14 |
+| microSD (SPI3) | MOSI | 13 |
+| microSD (SPI3) | CLK | 12 |
+| microSD (SPI3) | MISO | 11 |
+| Button | A | 1 |
+| Button | B | 2 |
+| Button | Left | 19 |
+| Button | Up | 21 |
+| Button | Start | 39 |
+| Button | Select | 38 |
+| Button | Right | 45 |
+| Button | Down | 47 |
+| Button | Rewind | 8 |
+
+The HT517 `EN` pin is tied to 3.3 V. All buttons are active-low, use the ESP32-S3 internal pull-ups, and connect to GND when pressed.
+
+> [!IMPORTANT]
+> Octal PSRAM is enabled and reserves GPIO33–37 (D4–D7/DQS) plus the MSPI shared bus (GPIO26–32). Start/Select use GPIO38/39 — GPIO38 is an FSPIWP mux (plain GPIO by default), GPIO39 is MTCK/JTAG TMS (plain GPIO by default). GPIO45 is a strapping pin, so do not hold Right during power-on. GPIO19 is USB D− and may interfere with the native USB connection after button initialization.
+
+LCD frame data uses the ESP-IDF `esp_lcd` SPI/GDMA path at 80 MHz. Audio uses the native I2S DMA driver at 48 kHz. The SD card is driven in SPI mode on `SPI3_HOST` (separate from the LCD's `SPI2_HOST`) at up to 40 MHz. The app runs at 240 MHz; WiFi and Bluetooth are disabled in `sdkconfig.defaults`.
+
+## Scope
+
+This is intentionally the small version: no launcher beyond the boot-time SD card picker — once a ROM is running you must reset/re-power the board to pick another one.

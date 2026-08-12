@@ -1,0 +1,141 @@
+CompileFlags:
+  CompilationDatabase: build
+
+  # Remove GCC/Xtensa-specific flags unsupported by clangd
+  Remove:
+    - -mno-serialize-volatile
+    - -mtext-section-literals
+    - -mlongcalls
+    - -fno-tree-switch-conversion
+    - -fstrict-volatile-bitflags
+    - -mno-allow-o32-direct-calls
+    - -mno-allow-o32-irect-calls
+    - -mtarget-align
+    - -mno-target-align
+    - -fno-jump-tables
+
+  # ESP-IDF header search paths
+  Add:
+    # --- SDK configuration macros (from sdkconfig.defaults) ---
+    - -DCONFIG_IDF_TARGET_ESP32S3
+    - -DCONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+    - -DCONFIG_COMPILER_OPTIMIZATION_PERF
+    - -DCONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240
+    - -DCONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+    - -DCONFIG_FREERTOS_HZ=1000
+    # --- Core components ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_common/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_system/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_system/port/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hw_support/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hw_support/port/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_rom/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_rom/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/soc/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/soc/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/hal/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/hal/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_mm/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_partition/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_app_format/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_timer/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_pm/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_ringbuf/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_eth/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_event/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/heap/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/heap/tlsf/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/log/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/newlib/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/pthread/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/spi_flash/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/efuse/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/efuse/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_security/include
+
+    # --- Driver components ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_gpio/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_i2s/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_spi/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_uart/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_dma/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_gptimer/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_pcnt/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_rmt/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_ledc/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_mcpwm/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_sdmmc/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_sdspi/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_sdio/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_usb_serial_jtag/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_i2c/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_driver_parlio/include
+
+    # --- LCD components ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_lcd/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_lcd/rgb/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_lcd/dsi/include
+
+    # --- FreeRTOS ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/freertos/FreeRTOS-Kernel/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/freertos/FreeRTOS-Kernel-SMP/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/freertos/config/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/freertos/esp_additions/include
+
+    # --- Wireless (Wi-Fi / BT) ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_wifi/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_wifi/wifi_apps/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/bt/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/bt/common/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/bt/porting/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_coex/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_phy/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/lwip/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/lwip/port/include
+
+    # --- Architecture-specific ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/xtensa/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/xtensa/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/riscv/include
+
+    # --- ESP32-S3 target-specific HAL layer ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_gpio/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_i2s/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_lcd/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_ledc/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_mcpwm/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_dma/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_clock/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_uart/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_rmt/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_pcnt/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_i2c/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_gpspi/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_twai/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_security/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_ana_conv/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_touch_sens/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_wdt/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_timg/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_rtc_timer/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_sd/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_usb/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_pmu/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_cam/esp32s3/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/esp_hal_mspi/esp32s3/include
+
+    # --- NVS / Flash ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/nvs_flash/include
+
+    # --- mbedTLS ---
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/mbedtls/mbedtls/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/mbedtls/port/include
+    - -isystem/Users/sharp/.espressif/v6.0.2/esp-idf/components/mbedtls/esp_crt_bundle/include
+
+    # --- Project components ---
+    - -Icomponents/nofrendo
+    - -Icomponents/nofrendo/nes
+    - -Icomponents/nofrendo/mappers
+
+    # --- Project main directory ---
+    - -Imain
