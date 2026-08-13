@@ -10,8 +10,6 @@ typedef struct {
     int (*save)(uint8_t *buffer);
     int (*load)(const uint8_t *buffer);
     void (*preview)(void);
-    int (*save_file)(const char *path);
-    int (*load_file)(const char *path);
 } rewind_backend_t;
 
 typedef enum {

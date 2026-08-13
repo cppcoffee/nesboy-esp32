@@ -110,10 +110,24 @@ static void dim_rows(uint16_t *buffer, int top, int bottom)
     }
 }
 
-static void draw_osd_text(uint16_t *buffer)
+static void draw_osd_text(uint16_t *buffer, int screen_y0)
 {
-    const int top = LCD_DMA_CHUNK_LINES - OSD_TEXT_ROWS;
-    dim_rows(buffer, top, LCD_DMA_CHUNK_LINES);
+    const int text_h = 16;
+    /* 16-row text block centered on the 240-row screen; it straddles the
+     * 120-line DMA chunk boundary, so each chunk draws the rows it owns. */
+    const int top = (LCD_H - text_h) / 2;
+
+    int band_top = top - 1 - screen_y0;
+    int band_bottom = band_top + OSD_TEXT_ROWS;
+    if (band_top < 0) {
+        band_top = 0;
+    }
+    if (band_bottom > LCD_DMA_CHUNK_LINES) {
+        band_bottom = LCD_DMA_CHUNK_LINES;
+    }
+    if (band_bottom > band_top) {
+        dim_rows(buffer, band_top, band_bottom);
+    }
 
     /* Typewriter reveal: two glyph columns appear per frame (8x16 text, each
      * font row doubled). The animation is driven by the OSD countdown, so it
@@ -127,7 +141,10 @@ static void draw_osd_text(uint16_t *buffer)
 
     int x0 = (LCD_W - text_w) / 2;
     for (int row = 0; row < 8; row++) {
-        int py0 = top + 1 + row * 2;
+        int py0 = top + row * 2 - screen_y0;
+        if (py0 < 0 || py0 + 1 >= LCD_DMA_CHUNK_LINES) {
+            continue;
+        }
         uint16_t *line = buffer + (size_t)py0 * LCD_W + x0;
         for (int i = 0; i < len; i++) {
             char c = disp.osd.text[i];
@@ -145,15 +162,22 @@ static void draw_osd_text(uint16_t *buffer)
     }
 }
 
-static void draw_osd(uint16_t *buffer)
+static void draw_osd(uint16_t *buffer, int screen_y0)
 {
     if (disp.osd.frames <= 0) {
         return;
     }
 
     if (disp.osd.text[0] != '\0') {
-        draw_osd_text(buffer);
-        disp.osd.frames--;
+        draw_osd_text(buffer, screen_y0);
+        if (screen_y0 == 0) {
+            disp.osd.frames--;
+        }
+        return;
+    }
+
+    /* Volume/brightness bars live at the bottom of the screen (second chunk). */
+    if (screen_y0 != LCD_DMA_CHUNK_LINES) {
         return;
     }
 
@@ -342,9 +366,7 @@ void display_blit(uint8 *bmp)
             }
         }
 
-        if (chunk == 1) {
-            draw_osd(disp.pipe.fb[1]);
-        }
+        draw_osd(disp.pipe.fb[chunk], y);
 
         lcd_queue_chunk_dma(y, LCD_DMA_CHUNK_LINES, disp.pipe.fb[chunk]);
         y += LCD_DMA_CHUNK_LINES;
@@ -376,9 +398,7 @@ void display_blit_gb(const uint16_t *bmp)
                 scale_gb_row(src, dst);
             }
         }
-        if (chunk == 1) {
-            draw_osd(disp.pipe.fb[1]);
-        }
+        draw_osd(disp.pipe.fb[chunk], y);
         lcd_queue_chunk_dma(y, LCD_DMA_CHUNK_LINES, disp.pipe.fb[chunk]);
         y += LCD_DMA_CHUNK_LINES;
     }

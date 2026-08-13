@@ -107,8 +107,6 @@ int emulator_nes_run(const char *rom_path)
         .save = rewind_save,
         .load = rewind_load,
         .preview = rewind_preview,
-        .save_file = state_save,
-        .load_file = state_load,
     };
     rewind_init(&rewind_backend);
 

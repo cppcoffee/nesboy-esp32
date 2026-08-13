@@ -18,6 +18,8 @@ The ROM used at runtime is chosen from the SD card at boot. Changing games is no
 
 The browser appears at boot, listing directories and `.nes`, `.gb`, and `.gbc` ROM files (directories first, then files, alphabetically; extension matching is case-insensitive). It handles FAT filesystems that report directory entries as `DT_UNKNOWN` and supports up to 1024 visible entries per folder. It is a one-shot startup picker: after a ROM is selected, the browser is gone for the rest of the session — to pick another game, reset/re-power the ESP32.
 
+While a ROM is highlighted, the browser shows box art in the bottom-right corner: a 24/32-bit uncompressed BMP named after the ROM without its extension (e.g. `smb.nes` → `smb.bmp`). Any image can be converted with ImageMagick (`magick cover.png -resize 192x192 smb.bmp`) or `sips -s format bmp cover.png --out smb.bmp`; the browser scales it automatically. Missing or unreadable images are simply skipped.
+
 | Button | Action |
 | --- | --- |
 | Up / Down | Move the cursor (holds auto-repeat) |
@@ -100,24 +102,25 @@ Both emulator cores expose save-state serializers for CPU, RAM, video, mapper, a
 
 | Combo | Action | OSD feedback |
 | --- | --- | --- |
-| **Start + Select** | Save the current state to `<rom>.state` beside the ROM | `SAVED` |
-| **Rewind + Select** | Load the state back from `<rom>.state` | `LOADED` / `NO SAVE` |
+| **Select + Start** | Save the current state to `<rom>.state` beside the ROM | `SAVED` |
+| **Select + A** | Load the state back from `<rom>.state` | `LOADED` / `NO SAVE` |
 
-Both combos are debounced for ~5 frames and trigger exactly once per press, regardless of which key was pressed first. The OSD text appears at the bottom of the screen for about 1 second with a typewriter reveal animation.
+Both combos are debounced for ~5 frames and trigger exactly once per press, regardless of which key was pressed first. The OSD text appears in the middle of the screen for about 1 second with a typewriter reveal animation.
 
 Details:
 
 - The state file is written next to the ROM on the SD card (e.g. `smb.nes` → `smb.nes.state`). It is overwritten on each save and kept until the next save, so you can load it any number of times — a fresh game is always one *not* pressing the load combo away. `.state` files are hidden from the ROM browser.
-- Loading replaces the running game with the saved snapshot and clears the rewind history, so holding Rewind afterwards cannot step back into pre-load gameplay. NES SNSS files are about 7–15 KB (instant write); GB/GBC snapshots are 28–180 KB depending on cartridge RAM, so a brief audio pause may be audible during the worst-case write.
-- **NES note:** NES games currently have no `.sav` battery file — the save-state combo is the *only* persistence for battery-backed games (e.g. Zelda) across power-off. The persistent SNSS state format includes SRAM, so a `SAVED` snapshot captures it.
+- Loading replaces the running game with the saved snapshot and clears the rewind history, so holding Rewind afterwards cannot step back into pre-load gameplay. Both cores store the same complete in-memory snapshot format used by rewind, so a load restores the exact machine state the save captured and gameplay continues bit-identically from the saved point. NES snapshots are ~7–16 KB; GB/GBC snapshots are 28–180 KB depending on cartridge RAM, so a brief audio pause may be audible during the worst-case write.
+- **NES note:** NES games currently have no `.sav` battery file — the save-state combo is the *only* persistence for battery-backed games (e.g. Zelda) across power-off. The state snapshot includes PRG RAM, so a `SAVED` snapshot captures it and can be loaded after a reboot.
 - **GB/GBC note:** the state also includes battery RAM, and `gnuboy_load_state_mem` marks the restored SRAM dirty, so the next periodic auto-save syncs it into the `.sav` file.
-- Holding Rewind and pressing Select loads instead of rewinding; the load takes priority over rewind scrubbing for that press.
+- If the save and load combos are held together (**Select + Start + A**), the load takes priority.
+- The Rewind button itself is independent of the save/load combos: it always rewinds while held.
 
 ## On-Screen Controls
 
-Hold **Start** and press a direction to adjust settings in real time. An on-screen indicator (red bar = volume, blue bar = brightness) appears at the bottom of the screen for about 1 second after each change.
+Hold **Select** and press a direction to adjust settings in real time. An on-screen indicator (red bar = volume, blue bar = brightness) appears at the bottom of the screen for about 1 second after each change.
 
-| Hold Start + | Adjustment | Step |
+| Hold Select + | Adjustment | Step |
 | --- | --- | ---: |
 | Up | Volume up | +1% |
 | Down | Volume down | –1% |

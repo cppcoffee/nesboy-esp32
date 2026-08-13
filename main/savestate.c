@@ -91,18 +91,6 @@ static int savestate_write(const char *rom_path, const rewind_backend_t *backend
     }
     remove(temp_path);
 
-    if (backend->save_file) {
-        if (backend->save_file(temp_path) < 0) {
-            remove(temp_path);
-            return -1;
-        }
-        if (commit_state_file(temp_path, state_path, backup_path) < 0) {
-            remove(temp_path);
-            return -1;
-        }
-        return 0;
-    }
-
     uint8_t *buf = alloc_buffer(backend->state_size);
     if (!buf) {
         ESP_LOGE(SAVESTATE_TAG, "out of memory: %u bytes", (unsigned)backend->state_size);
@@ -153,20 +141,6 @@ static int savestate_read(const char *rom_path, const rewind_backend_t *backend)
         return -1;
     }
     const char *load_path = file_exists(state_path) ? state_path : backup_path;
-
-    if (backend->load_file) {
-        uint8_t *rollback = alloc_buffer(backend->state_size);
-        if (!rollback || backend->save(rollback) != (int)backend->state_size) {
-            free(rollback);
-            return -1;
-        }
-        int result = backend->load_file(load_path);
-        if (result < 0) {
-            backend->load(rollback);
-        }
-        free(rollback);
-        return result;
-    }
 
     FILE *file = fopen(load_path, "rb");
     if (!file) {
@@ -227,17 +201,16 @@ int savestate_handle_buttons(const char *rom_path, const rewind_backend_t *backe
     static int load_count;
     static int save_count;
 
-    int rewind_key = buttons_rewind_read();
-    bool load_held = rewind_key == 0 && (buttons & NES_PAD_SELECT) != 0;
+    bool load_held = (buttons & (NES_PAD_SELECT | NES_PAD_A)) == (NES_PAD_SELECT | NES_PAD_A);
     bool save_held = (buttons & (NES_PAD_START | NES_PAD_SELECT)) == (NES_PAD_START | NES_PAD_SELECT);
     bool load_edge = combo_edge(load_held, &load_count);
     bool save_edge = combo_edge(save_held, &save_count);
 
     if (load_edge) {
         load_on_combo(rom_path, backend);
-    } else if (save_edge && !load_held) {
+    } else if (save_edge) {
         save_on_combo(rom_path, backend);
     }
 
-    return load_held ? 1 : rewind_key;
+    return buttons_rewind_read();
 }

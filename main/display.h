@@ -28,7 +28,7 @@ int display_get_brightness(void);
 /* Show an on-screen indicator with current volume and brightness. */
 void display_osd_show(int volume, int brightness);
 
-/* Show a short text overlay ("SAVED", "LOADED", ...) at the bottom of the
+/* Show a short text overlay ("SAVED", "LOADED", ...) in the middle of the
  * screen with a typewriter reveal animation, lasting about 1 second. */
 void display_osd_text(const char *text);
 

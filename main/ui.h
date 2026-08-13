@@ -36,5 +36,8 @@ int ui_draw_char(int x, int y, char c, uint16_t color);
 /* Draw a string at (x,y). Clips to screen. Returns x after last char. */
 int ui_draw_text(int x, int y, const char *s, uint16_t color);
 
+/* Blit an RGB565 image (clipped to screen). */
+void ui_blit(int x, int y, int w, int h, const uint16_t *pixels);
+
 /* Push the framebuffer to the LCD (blocking until DMA done). */
 void ui_flush(void);

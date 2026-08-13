@@ -107,6 +107,36 @@ int ui_draw_text(int x, int y, const char *s, uint16_t color)
     return x;
 }
 
+void ui_blit(int x, int y, int w, int h, const uint16_t *pixels)
+{
+    if (!ui_fb || !pixels) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        pixels -= x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        pixels -= y * w;
+        y = 0;
+    }
+    if (x + w > LCD_W) {
+        w = LCD_W - x;
+    }
+    if (y + h > LCD_H) {
+        h = LCD_H - y;
+    }
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+
+    for (int row = 0; row < h; row++) {
+        memcpy(ui_fb + (size_t)(y + row) * LCD_W + x, pixels + (size_t)row * w, (size_t)w * sizeof(uint16_t));
+    }
+}
+
 void ui_flush(void)
 {
     if (!ui_fb) {

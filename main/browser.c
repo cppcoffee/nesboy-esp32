@@ -6,10 +6,12 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "bmp.h"
 #include "buttons.h"
 #include "emulator/emulator.h"
 #include "ui.h"
@@ -20,12 +22,28 @@ static const char *TAG = "browser";
 #define MAX_ENTRIES   1024
 #define MAX_NAME      128
 #define MAX_PATH      160
-#define LINES_VISIBLE (LCD_H / UI_FONT_H) /* 15 */
+
+/* Layout: header band, then the list, then the footer band. The number of
+ * visible lines must fit between the header and footer or the last entries
+ * end up hidden behind the footer / off-screen. */
+#define LIST_TOP      (UI_FONT_H + 8)                    /* 24 */
+#define FOOTER_TOP    (LCD_H - UI_FONT_H - 3)            /* 221 */
+#define LINES_VISIBLE ((FOOTER_TOP - LIST_TOP) / UI_FONT_H)
+
+/* ROM preview: box art in the bottom-right corner, above the footer. */
+#define PREVIEW_SIZE 96
+#define PREVIEW_X    (LCD_W - PREVIEW_SIZE - 6)          /* 138 */
+#define PREVIEW_Y    (FOOTER_TOP - PREVIEW_SIZE - 7)     /* 118 */
 
 typedef struct {
     char name[MAX_NAME];
     uint8_t is_dir;
 } entry_t;
+
+/* Preview cache: decoded box art for the currently selected ROM. */
+static uint16_t *preview_px;
+static char preview_path[MAX_PATH];
+static int preview_ok;
 
 /* ---- path helpers (in-place) ---- */
 static void path_join(char *dst, int dstsz, const char *dir, const char *name)
@@ -71,6 +89,40 @@ static int path_parent(char *path)
 static int has_rom_ext(const char *name)
 {
     return emulator_find(name) != NULL;
+}
+
+/* Load box art for a ROM entry: <rom-name-without-extension>.bmp beside the
+ * ROM. Cached by image path so cursor moves don't re-read the SD card. */
+static void preview_load(const char *dir, const char *name)
+{
+    char base[MAX_NAME];
+    snprintf(base, sizeof(base), "%s", name);
+    char *dot = strrchr(base, '.');
+    if (dot) {
+        *dot = '\0';
+    }
+    snprintf(base + strlen(base), sizeof(base) - strlen(base), ".bmp");
+
+    char path[MAX_PATH];
+    path_join(path, sizeof(path), dir, base);
+    if (strcmp(path, preview_path) == 0) {
+        return;
+    }
+
+    preview_ok = 0;
+    strncpy(preview_path, path, sizeof(preview_path));
+    preview_path[sizeof(preview_path) - 1] = '\0';
+
+    if (!preview_px) {
+        preview_px = heap_caps_malloc(PREVIEW_SIZE * PREVIEW_SIZE * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        if (!preview_px) {
+            preview_px = heap_caps_malloc(PREVIEW_SIZE * PREVIEW_SIZE * sizeof(uint16_t),
+                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        }
+    }
+    if (preview_px) {
+        preview_ok = bmp_decode(path, preview_px, PREVIEW_SIZE, PREVIEW_SIZE) == 0;
+    }
 }
 
 static int entry_is_dir(const char *path, const struct dirent *entry)
@@ -155,8 +207,14 @@ static void draw_browser(const char *path, entry_t *entries, int count, int curs
     snprintf(hdr, sizeof(hdr), "%s", path);
     ui_draw_text(4, y, hdr, UI_COLOR_YELLOW);
 
+    /* show box art while a ROM is selected */
+    if (cursor < count && !entries[cursor].is_dir) {
+        preview_load(path, entries[cursor].name);
+    } else {
+        preview_ok = 0;
+    }
+
     /* list */
-    int list_top = UI_FONT_H + 8;
     int half = LINES_VISIBLE / 2;
     int offset = cursor - half; /* center cursor */
     if (offset < 0) {
@@ -169,22 +227,31 @@ static void draw_browser(const char *path, entry_t *entries, int count, int curs
         offset = 0;
     }
 
+    /* When the preview is shown, keep list text clear of it. */
+    int max_chars = (LCD_W - 12) / UI_FONT_W;
+    if (preview_ok) {
+        max_chars = (PREVIEW_X - 1 - 6) / UI_FONT_W;
+    }
+
     for (int i = 0; i < LINES_VISIBLE; i++) {
         int idx = offset + i;
         if (idx >= count) {
             break;
         }
-        int ry = list_top + i * UI_FONT_H;
+        int ry = LIST_TOP + i * UI_FONT_H;
         int selected = (idx == cursor);
         if (selected) {
-            ui_fill_rect(0, ry - 1, LCD_W, UI_FONT_H + 1, UI_COLOR_BLUE);
+            /* keep the highlight clear of the preview corner */
+            int hl_w = preview_ok ? PREVIEW_X - 1 : LCD_W;
+            ui_fill_rect(0, ry - 1, hl_w, UI_FONT_H + 1, UI_COLOR_BLUE);
         }
 
         char label[MAX_NAME + 4];
-        if (entries[idx].is_dir) {
-            snprintf(label, sizeof(label), "/%s", entries[idx].name);
+        char prefix = entries[idx].is_dir ? '/' : ' ';
+        if ((int)strlen(entries[idx].name) > max_chars - 1) {
+            snprintf(label, sizeof(label), "%c%.*s", prefix, max_chars - 1, entries[idx].name);
         } else {
-            snprintf(label, sizeof(label), " %s", entries[idx].name);
+            snprintf(label, sizeof(label), "%c%s", prefix, entries[idx].name);
         }
 
         uint16_t col = selected ? UI_COLOR_WHITE : (entries[idx].is_dir ? UI_COLOR_CYAN : UI_COLOR_GREY);
@@ -192,9 +259,15 @@ static void draw_browser(const char *path, entry_t *entries, int count, int curs
     }
 
     /* footer: controls */
-    int fy = LCD_H - UI_FONT_H - 2;
+    int fy = FOOTER_TOP + 1;
     ui_fill_rect(0, fy - 1, LCD_W, UI_FONT_H + 3, UI_COLOR_DARK);
     ui_draw_text(2, fy, "NES GB GBC  A:open B:up", UI_COLOR_GREY);
+
+    /* preview: bordered box art in the bottom-right corner */
+    if (preview_ok) {
+        ui_fill_rect(PREVIEW_X - 1, PREVIEW_Y - 1, PREVIEW_SIZE + 2, PREVIEW_SIZE + 2, UI_COLOR_GREY);
+        ui_blit(PREVIEW_X, PREVIEW_Y, PREVIEW_SIZE, PREVIEW_SIZE, preview_px);
+    }
 
     ui_flush();
 }
@@ -249,7 +322,7 @@ int browser_run(char *out_path, int out_path_size)
         if (pressed & NES_PAD_UP) {
             if (cursor > 0) {
                 cursor--;
-            } else {
+            } else if (count > 0) {
                 cursor = count - 1;
             }
             redraw = 1;
@@ -281,6 +354,7 @@ int browser_run(char *out_path, int out_path_size)
                 path_join(out_path, out_path_size, path, ents[cursor].name);
                 ESP_LOGI(TAG, "selected: %s", out_path);
                 free(ents);
+                free(preview_px);
                 return 0;
             }
         }

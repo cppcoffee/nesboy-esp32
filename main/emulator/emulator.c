@@ -64,7 +64,7 @@ bool emulator_handle_state_controls(const char *rom_path, const rewind_backend_t
 
 void emulator_settings_update(emulator_settings_t *settings, int buttons, int pressed)
 {
-    if (!(buttons & NES_PAD_START)) {
+    if (!(buttons & NES_PAD_SELECT)) {
         settings->volume_repeat = 0;
         settings->brightness_repeat = 0;
         return;

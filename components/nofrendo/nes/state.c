@@ -611,6 +611,21 @@ int state_load_mem(const uint8 *buf)
     const uint8 *p = buf;
     uint8 flags = *p++;
 
+    /* The snapshot contains raw structs, and those structs contain pointers.
+     * Keep the live pointers: after a reboot they differ from the saved ones
+     * and restoring stale values would corrupt memory. In-session (rewind)
+     * the values are identical, so this is a no-op there. */
+    uint8 *zp = machine->cpu->zp;
+    uint8 *stack = machine->cpu->stack;
+    uint8 **pages = machine->cpu->pages;
+    uint8 *nametab = machine->ppu->nametab;
+    uint8 *page[PPU_PAGECOUNT];
+    memcpy(page, machine->ppu->page, sizeof(page));
+    ppu_latchfunc_t latchfunc = machine->ppu->latchfunc;
+    ppu_vreadfunc_t vreadfunc = machine->ppu->vreadfunc;
+    short *apu_buffer = machine->apu->buffer;
+    const apuext_t *apu_ext = machine->apu->ext;
+
     memcpy(&machine->scanline, p, sizeof(machine->scanline));
     p += sizeof(machine->scanline);
     memcpy(&machine->cycles, p, sizeof(machine->cycles));
@@ -623,7 +638,7 @@ int state_load_mem(const uint8 *buf)
     p += sizeof(*machine->apu);
     memcpy(machine->mem->ram, p, MEM_RAMSIZE);
     p += MEM_RAMSIZE;
-    memcpy(machine->ppu->nametab, p, PPU_PAGESIZE * 4);
+    memcpy(nametab, p, PPU_PAGESIZE * 4);
     p += PPU_PAGESIZE * 4;
 
     /* CHR RAM */
@@ -662,6 +677,22 @@ int state_load_mem(const uint8 *buf)
 
         p += 0x218;
     }
+
+    /* Re-establish pointers that must stay live. CHR pages are rebuilt from
+     * the restored mapper banks above (or kept live for mapper 0); nametable
+     * pages are re-derived from the restored nametable map. */
+    machine->cpu->zp = zp;
+    machine->cpu->stack = stack;
+    machine->cpu->pages = pages;
+    machine->ppu->nametab = nametab;
+    memcpy(machine->ppu->page, page, sizeof(page));
+    for (int i = 0; i < 4; i++) {
+        ppu_setnametable(i, machine->ppu->nt_map[i]);
+    }
+    machine->ppu->latchfunc = latchfunc;
+    machine->ppu->vreadfunc = vreadfunc;
+    machine->apu->buffer = apu_buffer;
+    machine->apu->ext = apu_ext;
 
     return 0;
 }
