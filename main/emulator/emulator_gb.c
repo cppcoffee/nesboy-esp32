@@ -159,7 +159,7 @@ int emulator_gb_run(const char *rom_path)
 
         if (++save_timer >= GB_SRAM_SAVE_FRAMES) {
             save_timer = 0;
-            if (gnuboy_sram_dirty() && gnuboy_save_sram(save_path, false) < 0) {
+            if (gnuboy_sram_dirty() && gnuboy_save_sram(save_path, true) < 0) {
                 ESP_LOGE(TAG, "failed to save SRAM: %s", save_path);
             }
         }

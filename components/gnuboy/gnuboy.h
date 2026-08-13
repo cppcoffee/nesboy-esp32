@@ -127,6 +127,7 @@ int gnuboy_get_palette(void);
 void gnuboy_set_palette(gb_palette_t pal);
 
 int gnuboy_load_sram(const char *file);
+/* quick_save updates only dirty/missing banks; false rewrites the complete file. */
 int gnuboy_save_sram(const char *file, bool quick_save);
 int gnuboy_load_state(const char *file);
 int gnuboy_save_state(const char *file);

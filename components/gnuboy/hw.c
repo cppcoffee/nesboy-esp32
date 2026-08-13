@@ -80,6 +80,8 @@ static void rtc_tick()
 			cart.rtc.s = 0;
 		}
 		cart.rtc.ticks = 0;
+		if (cart.has_rtc)
+			cart.rtc.dirty = 1;
 	}
 }
 
