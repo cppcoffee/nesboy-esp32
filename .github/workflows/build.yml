@@ -1,0 +1,31 @@
+# Builds the ESP32-S3 firmware on every push/PR using the official ESP-IDF image.
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v6.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build firmware
+        run: |
+          idf.py set-target esp32s3
+          idf.py build
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: nesboy-esp32-firmware
+          path: |
+            build/nesboy-esp32.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/flash_args
+          if-no-files-found: error
