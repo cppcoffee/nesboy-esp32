@@ -15,7 +15,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build firmware
+        shell: bash
         run: |
+          # The espressif/idf image ships ESP-IDF but doesn't put idf.py on PATH;
+          # sourcing export.sh activates the toolchain (IDF_PATH is preset in the image).
+          . "$IDF_PATH/export.sh"
+          # Avoid git "dubious ownership" errors from the checkout's UID mismatch in the container.
+          git config --global --add safe.directory '*'
           idf.py set-target esp32s3
           idf.py build
 
