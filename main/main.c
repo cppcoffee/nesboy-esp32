@@ -55,8 +55,19 @@ static void emulation_task(void *arg)
 
     display_init();
     ui_init();
-    if (!sdcard_mount()) {
-        show_error("NO SD CARD");
+    char sd_err[40] = "";
+    if (!sdcard_mount(sd_err, sizeof(sd_err))) {
+        ESP_LOGE(TAG, "SD mount failed: %s", sd_err);
+        ui_clear(UI_COLOR_BLACK);
+        ui_draw_text(48, 92, "NO SD CARD", UI_COLOR_RED);
+        if (sd_err[0]) {
+            ui_draw_text(8, 116, sd_err, UI_COLOR_WHITE);
+        }
+        ui_draw_text(24, 140, "INSERT SD CARD AND RESET", UI_COLOR_WHITE);
+        ui_flush();
+        while (1) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
     }
 
     char rom_path[160];

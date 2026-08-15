@@ -18,11 +18,11 @@ static const char *TAG = "sdcard";
 static sdmmc_host_t s_host;
 static sdmmc_card_t *s_card = NULL;
 
-bool sdcard_mount(void)
+bool sdcard_mount(char *err_out, size_t err_out_len)
 {
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SPI3_HOST;
-    host.max_freq_khz = SDMMC_FREQ_HIGHSPEED; /* 40 MHz; falls back if card can't */
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT; /* 20 MHz; safer than 40 MHz for SPI-mode breakouts */
     s_host = host;
 
     spi_bus_config_t bus_cfg = {
@@ -36,6 +36,9 @@ bool sdcard_mount(void)
     esp_err_t ret = spi_bus_initialize(s_host.slot, &bus_cfg, SPI_DMA_CH_AUTO);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "spi_bus_initialize failed: %s", esp_err_to_name(ret));
+        if (err_out && err_out_len) {
+            snprintf(err_out, err_out_len, "%s", esp_err_to_name(ret));
+        }
         return false;
     }
 
@@ -52,6 +55,9 @@ bool sdcard_mount(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "mount failed: %s", esp_err_to_name(ret));
         ESP_LOGE(TAG, "-> check wiring, card insertion, and 3.3V supply");
+        if (err_out && err_out_len) {
+            snprintf(err_out, err_out_len, "%s", esp_err_to_name(ret));
+        }
         spi_bus_free(s_host.slot);
         s_card = NULL;
         return false;
