@@ -58,7 +58,6 @@ void ui_fill_rect(int x, int y, int w, int h, uint16_t color)
 
     for (int row = 0; row < h; row++) {
         uint16_t *line = ui_fb + (size_t)(y + row) * LCD_W + x;
-        /* fill first pixel then memcpy-doubling across the row */
         for (int col = 0; col < w; col++) {
             line[col] = color;
         }

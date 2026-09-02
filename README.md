@@ -2,7 +2,7 @@
 
 Minimal ESP-IDF NES, Game Boy, Game Boy Color, Game Boy Advance, and Super Nintendo emulator for ESP32-S3.
 
-NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. GBA and SNES target **30 FPS** (every display frame runs two emulated 60 Hz frames; audio from both is merged into the 48 kHz output). On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, `.gbc`, `.gba`, and `.sfc`/`.smc`/`.swc`/`.fig` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo` and `gnuboy` cores from `retro-goretro-go`, a `gpSP` interpreter core (`components/gba`), and a trimmed `snes9x` core (`components/snes9x`).
+NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. GBA and SNES target **30 display FPS**; SNES preserves the ROM's native 50/60 Hz emulation and audio rate while scheduling rendered frames at 30 Hz. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, `.gbc`, `.gba`, and `.sfc`/`.smc`/`.swc`/`.fig` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo` and `gnuboy` cores from `retro-goretro-go`, a `gpSP` interpreter core (`components/gba`), and a trimmed `snes9x` core (`components/snes9x`).
 
 ## Playing Games from the SD Card
 
@@ -49,7 +49,7 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - `.gb` and `.gbc` use the `gnuboy` core. CGB-capable cartridges automatically run in color mode.
 - The native 160×144 image is scaled to 240×216 with an exact nearest-neighbor 3:2 expansion and centered on the 240×240 display. The scaler expands each two-pixel pair directly and copies duplicate rows instead of recalculating all 51,840 output pixels.
 - Stereo audio uses the same 48 kHz I2S output and volume controls as NES.
-- Battery-backed RAM is loaded from a `.sav` file beside the ROM and automatically saved after it changes.
+- Battery RAM is not read from or periodically written to the SD card during gameplay; use a save state for persistence across power-off.
 - The dedicated Rewind button works for GB and GBC games as well as NES.
 
 ### Game Boy Advance notes
@@ -58,16 +58,16 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - The native 240×160 image is drawn 1:1 and centered vertically (40 black rows top and bottom).
 - The core renders at 60 Hz internally; each 30 Hz display frame runs two emulated frames with the audio from both merged and resampled 32.768 kHz → 48 kHz (linear interpolation, phase-continuous).
 - The interpreter is single-core; demanding 3D titles may occasionally drop below 30 FPS. Frameskip is not automatic.
-- Battery RAM (SRAM/flash) is loaded from a `.sav` file beside the ROM and saved after it changes.
-- Save states and rewind work; each GBA snapshot is 416 KB, so rewind keeps 2 slots (6 s of history).
+- Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
+- Save states and rewind work; each GBA snapshot is 416 KB, so rewind keeps 6 slots (18 s of history; ROMs larger than ~4 MB leave too little PSRAM and rewind disables itself).
 
 ### Super Nintendo notes
 
 - `.sfc`, `.smc`, `.swc`, and `.fig` use a trimmed `snes9x` interpreter core (Snes9x license, see `components/snes9x/src/LICENSE`).
-- The native 256×224 image is scaled horizontally to 240 columns with nearest-neighbor (15:16 — one source column dropped per 16) and centered vertically (8 black rows top and bottom).
-- Two emulated frames run per 30 Hz display frame; the 32 kHz stereo audio from both is resampled to the 48 kHz output. PAL games run ~2.5% fast at this pace.
+- The native 256×224 image is scaled horizontally to 240 columns with nearest-neighbor (15:16 — one source column dropped per 16) and centered vertically (8 black rows top and bottom). Mode 5/6 output is reduced to 256 columns inside the renderer, and interlaced output uses one field to fit the fixed 256×239 framebuffer safely.
+- Rendering targets 30 FPS while emulation and 32 kHz stereo audio retain the ROM's native 60 Hz (NTSC) or 50 Hz (PAL) timing; audio is resampled continuously to the 48 kHz output.
 - Special-chip games are **not** supported by this trimmed core: no SuperFX (Star Fox, Yoshi's Island), no SA-1 (Super Mario RPG), no SDD-1, no SPC7110, and no DSP-1 (Mario Kart's OK/only partly). Standard LoROM/HiROM games work.
-- Battery RAM (`.srm`, up to 64 KB) is loaded from a file beside the ROM and saved after it changes.
+- Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
 - Save states and rewind work; each SNES snapshot is ~357 KB, so rewind keeps 2 slots (6 s of history).
 
 ## Flashing / Rebuilding
@@ -106,7 +106,7 @@ For NES, GB, GBC, GBA, and SNES games, a dedicated **Rewind** button (GPIO 8, ac
 
 While the button is held, normal gameplay and audio output are paused. Each rewind step restores an older snapshot, previews a frame, and restores the snapshot again so gameplay continues from the selected point when the button is released.
 
-Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; GBA snapshots are 416 KB each and SNES snapshots ~357 KB. To bound the PSRAM budget, the ring depth is tuned per core: 6 slots for NES/SMS (~18 s of history), 4 for GB/GBC (12 s), 2 for GBA (6 s) and SNES (6 s). Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation, with automatic fallback to internal RAM if PSRAM fails. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
+Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; GBA snapshots are 416 KB each and SNES snapshots ~357 KB. To bound the PSRAM budget, the ring depth is tuned per core: 6 slots for NES/SMS (~18 s of history), GB/GBC (18 s) and GBA (18 s), and 2 for SNES (6 s — the 6 MB ROM buffer and core buffers leave no PSRAM headroom for more). Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation, with automatic fallback to internal RAM if PSRAM fails. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
 
 ### Memory lifecycle
 
@@ -130,7 +130,7 @@ Details:
 - The state file is written next to the ROM on the SD card (e.g. `smb.nes` → `smb.nes.state`). It is overwritten on each save and kept until the next save, so you can load it any number of times — a fresh game is always one *not* pressing the load combo away. `.state` files are hidden from the ROM browser.
 - Loading replaces the running game with the saved snapshot and clears the rewind history, so holding Rewind afterwards cannot step back into pre-load gameplay. Both cores store the same complete in-memory snapshot format used by rewind, so a load restores the exact machine state the save captured and gameplay continues bit-identically from the saved point. NES snapshots are ~7–16 KB; GB/GBC snapshots are 28–180 KB depending on cartridge RAM, so a brief audio pause may be audible during the worst-case write.
 - **NES note:** NES games currently have no `.sav` battery file — the save-state combo is the *only* persistence for battery-backed games (e.g. Zelda) across power-off. The state snapshot includes PRG RAM, so a `SAVED` snapshot captures it and can be loaded after a reboot.
-- **GB/GBC note:** the state also includes battery RAM, and `gnuboy_load_state_mem` marks the restored SRAM dirty, so the next periodic auto-save syncs it into the `.sav` file.
+- **GB/GBC note:** the state includes battery RAM. There is no periodic `.sav` sync, so use the state-save combo to persist it across power-off.
 - If the save and load combos are held together (**Select + Start + A**), the load takes priority.
 - The Rewind button itself is independent of the save/load combos: it always rewinds while held.
 
@@ -159,17 +159,13 @@ User-configurable build macros are kept in `main/app_config.h`. FPS logging is d
 #define NES_ENABLE_FRAME_STATS 1
 ```
 
-When enabled, one summary is printed every 600 frames (about 10 seconds) for both NES and GB/GBC. The original Game Boy timing is about 59.73 FPS, so a healthy GB/GBC result is approximately 59.7 FPS rather than exactly 60.0. Measured on the N16R8 dev board, NES holds a steady 60 FPS:
+When enabled, one summary is printed every 600 outer-loop frames for every emulator. The original Game Boy timing is about 59.73 FPS, so a healthy GB/GBC result is approximately 59.7 FPS rather than exactly 60.0; GBA and SNES target 30.0 display FPS.
 
-```text
-fps=60.0 emulate=15.60ms max=16.13ms audio_wait=1.04ms
-```
-
-Each 600-frame window measures 60.0–60.4 FPS. `emulate` (per-frame emulation time, ~15.5 ms) stays comfortably under the 16.67 ms frame budget, with `audio_wait` (time waiting on the audio queue) around 1 ms — the audio queue backpressure is what paces the loop at exactly 60 FPS.
+The log reports `fps`, average and maximum `emulate` work time, and `audio_wait`. Audio-queue blocking is measured where it actually occurs and excluded from `emulate`, so the two values can be used to tell CPU/GPU work from normal audio pacing.
 
 The full 240×240 screen is filled each frame (NES overscan is not cropped) using two 120-line DMA chunks with double buffering; keeping the chunk count at two is what preserves the 60 FPS budget.
 
-Set `NES_ENABLE_FRAME_STATS` back to `0` for normal builds. The counters, timing, and log formatting are implemented separately in `main/frame_stats.c`; the emulation loop only marks the three frame phases.
+Set `NES_ENABLE_FRAME_STATS` back to `0` for normal builds. The counters, timing, and log formatting are implemented separately in `main/frame_stats.c`.
 
 ## Hardware
 

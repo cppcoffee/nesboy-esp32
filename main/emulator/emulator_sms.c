@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -24,7 +23,6 @@ static bool rewind_previewing;
 
 enum {
     SMS_AUDIO_MAX_SAMPLES = AUDIO_RATE / 50 + 2,
-    SMS_SRAM_SAVE_FRAMES = 5 * 60,
 };
 
 static sms_hw_t sms_hw;
@@ -87,21 +85,6 @@ static void rewind_preview(void)
     rewind_previewing = false;
 }
 
-static int make_save_path(const char *rom_path, char *save_path, size_t size)
-{
-    int written = snprintf(save_path, size, "%s", rom_path);
-    if (written < 0 || (size_t)written >= size) {
-        return -1;
-    }
-    char *slash = strrchr(save_path, '/');
-    char *extension = strrchr(save_path, '.');
-    if (!extension || (slash && extension < slash)) {
-        extension = save_path + strlen(save_path);
-    }
-    snprintf(extension, size - (size_t)(extension - save_path), ".sav");
-    return 0;
-}
-
 int emulator_sms_run(const char *rom_path, bool game_gear)
 {
     sms_hw = game_gear ? SMS_HW_GG : SMS_HW_SMS;
@@ -161,10 +144,6 @@ int emulator_sms_run(const char *rom_path, bool game_gear)
 
     sms_reset();
 
-    char save_path[192];
-    make_save_path(rom_path, save_path, sizeof(save_path));
-    sms_load_sram(save_path);
-
     const rewind_backend_t rewind_backend = {
         .state_size = sms_state_size(),
         .refresh_rate = 60,
@@ -178,7 +157,6 @@ int emulator_sms_run(const char *rom_path, bool game_gear)
     const TickType_t frame_delay = pdMS_TO_TICKS(1000 / rewind_backend.refresh_rate);
     emulator_settings_t settings = {0};
     int previous_buttons = 0;
-    int save_timer = 0;
 
     while (1) {
         int buttons = buttons_read();
@@ -194,14 +172,6 @@ int emulator_sms_run(const char *rom_path, bool game_gear)
 
         frame_stats_begin();
         sms_run_frame();
-        frame_stats_emulation_done();
         frame_stats_end();
-
-        if (++save_timer >= SMS_SRAM_SAVE_FRAMES) {
-            save_timer = 0;
-            if (sms_sram_dirty() && sms_save_sram(save_path) < 0) {
-                ESP_LOGE(TAG, "failed to save SRAM: %s", save_path);
-            }
-        }
     }
 }

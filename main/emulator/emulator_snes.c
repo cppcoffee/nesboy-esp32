@@ -3,8 +3,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -22,16 +20,8 @@
 static const char *TAG = "emulator-snes";
 static bool rewind_previewing;
 
-enum {
-    /* SNES audio renders at 32 kHz. Cap the mix to one frame worth. */
-    SNES_AUDIO_BUFFER_SAMPLES = SNES_AUDIO_RATE_DEFAULT / 50 + 2,
-    SNES_SRAM_SAVE_FRAMES = 5,
-};
-
-/* SNES runs at 60 (NTSC) or 50 (PAL) fps; each 30 Hz display frame runs two
- * emulated frames. PAL games run ~2.5% fast at this rate (50/2 vs 30), which
- * is acceptable for the 30 fps target. */
-#define SNES_FRAMES_PER_DISPLAY_FRAME 2
+/* Render at 30 fps while preserving the ROM's native 50/60 Hz timing. */
+#define SNES_DISPLAY_FPS 30
 
 static void video_callback(void *buffer)
 {
@@ -97,55 +87,6 @@ static void rewind_preview(void)
     rewind_previewing = false;
 }
 
-static int make_save_path(const char *rom_path, char *save_path, size_t size, const char *extension)
-{
-    int written = snprintf(save_path, size, "%s", rom_path);
-    if (written < 0 || (size_t)written >= size) {
-        return -1;
-    }
-    char *slash = strrchr(save_path, '/');
-    char *dot = strrchr(save_path, '.');
-    if (!dot || (slash && dot < slash)) {
-        dot = save_path + strlen(save_path);
-    }
-    snprintf(dot, size - (size_t)(dot - save_path), "%s", extension);
-    return 0;
-}
-
-static int load_sram(const char *rom_path)
-{
-    char save_path[192];
-    if (make_save_path(rom_path, save_path, sizeof(save_path), ".srm") < 0) {
-        return -1;
-    }
-    FILE *file = fopen(save_path, "rb");
-    if (!file) {
-        return -1;
-    }
-    size_t size = fread(snes_sram(), 1, snes_sram_size(), file);
-    fclose(file);
-    ESP_LOGI(TAG, "loaded battery RAM: %s (%u bytes)", save_path, (unsigned)size);
-    return 0;
-}
-
-static int save_sram(const char *rom_path)
-{
-    char save_path[192];
-    if (make_save_path(rom_path, save_path, sizeof(save_path), ".srm") < 0) {
-        return -1;
-    }
-    FILE *file = fopen(save_path, "wb");
-    if (!file) {
-        return -1;
-    }
-    size_t written = fwrite(snes_sram(), 1, snes_sram_size(), file);
-    fclose(file);
-    if (written != snes_sram_size()) {
-        return -1;
-    }
-    return 0;
-}
-
 int emulator_snes_run(const char *rom_path)
 {
     /* 256x239 (extended height) RGB565 frame buffer. It does not fit in
@@ -170,7 +111,11 @@ int emulator_snes_run(const char *rom_path)
     }
 
     snes_reset();
-    load_sram(rom_path);
+
+    uint32_t rom_fps = snes_rom_frames_per_second();
+    if (rom_fps != 50 && rom_fps != 60) {
+        rom_fps = 60;
+    }
 
     const rewind_backend_t rewind_backend = {
         .state_size = snes_state_size(),
@@ -185,7 +130,8 @@ int emulator_snes_run(const char *rom_path)
     const TickType_t frame_delay = pdMS_TO_TICKS(1000 / rewind_backend.refresh_rate);
     emulator_settings_t settings = {0};
     int previous_buttons = 0;
-    int save_timer = 0;
+    uint32_t emulated_frame_phase = 0;
+    TickType_t last_wake = xTaskGetTickCount();
 
     while (1) {
         int buttons = buttons_read();
@@ -196,23 +142,24 @@ int emulator_snes_run(const char *rom_path)
 
         if (emulator_handle_state_controls(rom_path, &rewind_backend, buttons)) {
             vTaskDelay(frame_delay);
+            last_wake = xTaskGetTickCount();
             continue;
         }
 
+        /* The audio queue paces the long-run average; this delay keeps the
+         * blit on an even 30 Hz grid so PAL's 1-2-2 emulated-frame pattern
+         * does not surface as 20/40 ms blit jitter. */
+        vTaskDelayUntil(&last_wake, frame_delay);
+
         frame_stats_begin();
-        for (int f = 0; f < SNES_FRAMES_PER_DISPLAY_FRAME; f++) {
-            snes_set_video_skip(f != SNES_FRAMES_PER_DISPLAY_FRAME - 1);
+        emulated_frame_phase += rom_fps;
+        int frames_to_run = (int)(emulated_frame_phase / SNES_DISPLAY_FPS);
+        emulated_frame_phase %= SNES_DISPLAY_FPS;
+        for (int f = 0; f < frames_to_run; f++) {
+            snes_set_video_skip(f != frames_to_run - 1);
             snes_run_frame();
         }
         snes_set_video_skip(false);
-        frame_stats_emulation_done();
         frame_stats_end();
-
-        if (++save_timer >= SNES_SRAM_SAVE_FRAMES) {
-            save_timer = 0;
-            if (save_sram(rom_path) < 0) {
-                ESP_LOGE(TAG, "failed to save SRAM: %s", rom_path);
-            }
-        }
     }
 }

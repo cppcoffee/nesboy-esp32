@@ -137,9 +137,11 @@ static void Sanitize(char* str, size_t bufsize)
 /**********************************************************************************************/
 bool S9xInitMemory(void)
 {
-   Memory.RAM   = (uint8_t*)snes_malloc(RAM_SIZE);
+   /* Hot CPU/PPU memory: internal RAM first, PSRAM fallback keeps the
+    * core working when internal RAM is exhausted (e.g. after GB/NES). */
+   Memory.RAM   = (uint8_t*)snes_malloc_fast(RAM_SIZE);
    Memory.SRAM  = (uint8_t*)snes_malloc(SRAM_SIZE);
-   Memory.VRAM  = (uint8_t*)snes_malloc(VRAM_SIZE);
+   Memory.VRAM  = (uint8_t*)snes_malloc_fast(VRAM_SIZE);
    Memory.FillRAM = (uint8_t*)snes_malloc(0x8000);
 
    Memory.Map = (uint8_t**)snes_calloc(MEMMAP_NUM_BLOCKS, sizeof(uint8_t*));

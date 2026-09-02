@@ -3,8 +3,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -25,14 +23,11 @@ static bool rewind_previewing;
 enum {
     /* ~1/60 s of GBA audio at 32768 Hz, plus slack. */
     GBA_AUDIO_MAX_SAMPLES = GBA_AUDIO_RATE / 55 + 8,
-    /* Battery file is synced when changed; checked every 5 display frames. */
-    GBA_SRAM_SAVE_FRAMES = 5,
 };
 
 /* The device targets 30 display fps while the GBA runs at 60: each display
- * frame runs two emulated frames. The first one renders video (the blit is
- * fed from the second one too — the core re-renders on request), audio from
- * both is queued and the 48 kHz output paces the loop. */
+ * frame runs two emulated frames. Only the second one renders video; audio
+ * from both is queued and the 48 kHz output paces the loop. */
 #define GBA_FRAMES_PER_DISPLAY_FRAME 2
 
 static void video_callback(void *buffer)
@@ -95,55 +90,6 @@ static void rewind_preview(void)
     rewind_previewing = false;
 }
 
-static int make_save_path(const char *rom_path, char *save_path, size_t size, const char *extension)
-{
-    int written = snprintf(save_path, size, "%s", rom_path);
-    if (written < 0 || (size_t)written >= size) {
-        return -1;
-    }
-    char *slash = strrchr(save_path, '/');
-    char *dot = strrchr(save_path, '.');
-    if (!dot || (slash && dot < slash)) {
-        dot = save_path + strlen(save_path);
-    }
-    snprintf(dot, size - (size_t)(dot - save_path), "%s", extension);
-    return 0;
-}
-
-static int load_sram(const char *rom_path)
-{
-    char save_path[192];
-    if (make_save_path(rom_path, save_path, sizeof(save_path), ".sav") < 0) {
-        return -1;
-    }
-    FILE *file = fopen(save_path, "rb");
-    if (!file) {
-        return -1;
-    }
-    size_t size = fread(gba_backup_ram(), 1, gba_backup_ram_size(), file);
-    fclose(file);
-    ESP_LOGI(TAG, "loaded battery RAM: %s (%u bytes)", save_path, (unsigned)size);
-    return 0;
-}
-
-static int save_sram(const char *rom_path)
-{
-    char save_path[192];
-    if (make_save_path(rom_path, save_path, sizeof(save_path), ".sav") < 0) {
-        return -1;
-    }
-    FILE *file = fopen(save_path, "wb");
-    if (!file) {
-        return -1;
-    }
-    size_t written = fwrite(gba_backup_ram(), 1, gba_backup_ram_size(), file);
-    fclose(file);
-    if (written != gba_backup_ram_size()) {
-        return -1;
-    }
-    return 0;
-}
-
 int emulator_gba_run(const char *rom_path)
 {
     /* GBA ROMs are large: cache 8 MB of the ROM in PSRAM (the core swaps
@@ -173,7 +119,6 @@ int emulator_gba_run(const char *rom_path)
     }
 
     gba_reset(true);
-    load_sram(rom_path);
 
     const rewind_backend_t rewind_backend = {
         .state_size = gba_state_size(),
@@ -188,7 +133,6 @@ int emulator_gba_run(const char *rom_path)
     const TickType_t frame_delay = pdMS_TO_TICKS(1000 / rewind_backend.refresh_rate);
     emulator_settings_t settings = {0};
     int previous_buttons = 0;
-    int save_timer = 0;
 
     while (1) {
         int buttons = buttons_read();
@@ -214,14 +158,6 @@ int emulator_gba_run(const char *rom_path)
             gba_run_frame();
         }
         gba_set_video_skip(false);
-        frame_stats_emulation_done();
         frame_stats_end();
-
-        if (++save_timer >= GBA_SRAM_SAVE_FRAMES) {
-            save_timer = 0;
-            if (save_sram(rom_path) < 0) {
-                ESP_LOGE(TAG, "failed to save battery RAM: %s", rom_path);
-            }
-        }
     }
 }

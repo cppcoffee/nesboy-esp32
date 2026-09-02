@@ -21,6 +21,7 @@
 #define MEMORY_H
 
 #include "cpu.h"
+#include "esp_heap_caps.h"
 
 #define FEAT_AUTODETECT  -1
 #define FEAT_DISABLE      0
@@ -339,12 +340,14 @@ unsigned memory_write_savestate(u8 *dst);
 #ifdef GBSP_PSRAM
 // Wrap the big frame-memory globals into one struct allocated in PSRAM, whilst
 // preserving the interface of code that treats them as fixed arrays.
+// The hot CPU/PPU buffers (vram, iwram) are split out into their own
+// internal-RAM allocations with PSRAM fallback (gbsp_hot_malloc).
 // NOTE: fields must only be accessed after gbsp_memory_init() has run.
 typedef struct
 {
-  u8 vram[1024 * 96];
+  u8 *vram;   /* 96 KB, internal RAM preferred */
   u8 ewram[(1024 * 256) << SMC_DETECTION];
-  u8 iwram[(1024 * 32) << SMC_DETECTION];
+  u8 *iwram;  /* 32 KB, internal RAM preferred */
   u8 gamepak_backup[1024 * 128];
   /* OBJ rendering priority queues (from video.cpp) */
   u8 obj_priority_list[5][160][128];
@@ -357,6 +360,20 @@ extern gbsp_memory_t *gbsp_memory;
 #define ewram gbsp_memory->ewram
 #define iwram gbsp_memory->iwram
 #define gamepak_backup gbsp_memory->gamepak_backup
+
+/* Split-out hot buffers are pointers, so code must use these constants
+ * instead of sizeof(vram)/sizeof(iwram). */
+#define GBA_VRAM_SIZE  (1024 * 96)
+#define GBA_IWRAM_SIZE ((1024 * 32) << SMC_DETECTION)
+
+/* Internal-RAM-first allocation with PSRAM fallback. */
+static inline void *gbsp_hot_malloc(size_t size)
+{
+  void *ptr = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!ptr)
+    ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return ptr;
+}
 
 bool gbsp_memory_init(void);
 #endif

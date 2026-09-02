@@ -51,11 +51,6 @@ void gba_set_video_skip(bool skip);
 
 void gba_reset(bool hard);
 
-/* Battery-backed cart RAM (SRAM/flash/EEPROM) persistence. The buffer is
- * up to 64 KiB (gamepak_backup, 128 KiB allocated). */
-uint8_t *gba_backup_ram(void);
-size_t gba_backup_ram_size(void);
-
 /* Save states. state_size() returns the exact snapshot size (416 KiB).
  * save/load take that many bytes. */
 size_t gba_state_size(void);

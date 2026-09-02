@@ -12,7 +12,7 @@ extern const int32_t NoiseFreq[32];
 
 bool S9xInitAPU()
 {
-   IAPU.RAM = (uint8_t*) snes_malloc(0x10000);
+   IAPU.RAM = (uint8_t*) snes_malloc_fast(0x10000);
 
    if (!IAPU.RAM)
    {

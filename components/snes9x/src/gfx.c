@@ -240,45 +240,18 @@ void S9xStartScreenRefresh(void)
    {
       IPPU.PreviousLine = IPPU.CurrentLine = 0;
 
-      if (PPU.BGMode == 5 || PPU.BGMode == 6)
-         IPPU.Interlace = (Memory.FillRAM[0x2133] & 1);
-      if (PPU.BGMode == 5 || PPU.BGMode == 6 || IPPU.Interlace)
-      {
-         IPPU.RenderedScreenWidth = 512;
-         IPPU.DoubleWidthPixels = true;
-         IPPU.HalfWidthPixels = false;
-
-         if (IPPU.Interlace)
-         {
-            IPPU.RenderedScreenHeight = PPU.ScreenHeight << 1;
-            IPPU.DoubleHeightPixels = true;
-            GFX.Pitch2 = GFX.RealPitch;
-            GFX.Pitch = GFX.RealPitch * 2;
-            GFX.PPL = GFX.PPLx2 = GFX.RealPitch;
-         }
-         else
-         {
-            IPPU.RenderedScreenHeight = PPU.ScreenHeight;
-            GFX.Pitch2 = GFX.Pitch = GFX.RealPitch;
-            IPPU.DoubleHeightPixels = false;
-            GFX.PPL = GFX.Pitch >> 1;
-            GFX.PPLx2 = GFX.PPL << 1;
-         }
-      }
-      else
-      {
-         IPPU.RenderedScreenWidth = 256;
-         IPPU.RenderedScreenHeight = PPU.ScreenHeight;
-         IPPU.DoubleWidthPixels = false;
-         IPPU.HalfWidthPixels = false;
-         IPPU.DoubleHeightPixels = false;
-         {
-            GFX.Pitch2 = GFX.Pitch = GFX.RealPitch;
-            GFX.PPL = GFX.PPLx2 >> 1;
-            GFX.ZPitch = GFX.RealPitch;
-            GFX.ZPitch >>= 1;
-         }
-      }
+      /* The target LCD is only 240 pixels wide. Render mode 5/6 directly
+       * at half width and use one interlace field so the core never writes
+       * beyond the port's 256x239 framebuffer. */
+      IPPU.Interlace = false;
+      IPPU.RenderedScreenWidth = SNES_WIDTH;
+      IPPU.RenderedScreenHeight = PPU.ScreenHeight;
+      IPPU.DoubleWidthPixels = false;
+      IPPU.HalfWidthPixels = (PPU.BGMode == 5 || PPU.BGMode == 6);
+      IPPU.DoubleHeightPixels = false;
+      GFX.Pitch2 = GFX.Pitch = GFX.RealPitch;
+      GFX.PPL = GFX.PPLx2 >> 1;
+      GFX.ZPitch = GFX.RealPitch >> 1;
 
       PPU.RecomputeClipWindows = true;
       GFX.DepthDelta = GFX.SubZBuffer - GFX.ZBuffer;
@@ -712,14 +685,21 @@ static void DrawOBJS(bool OnMain, uint8_t D)
        * to stop SelectTileRenderer from being called when it causes
        * problems. */
       OnMain = false;
-      GFX.PixSize = 2;
-      if (IPPU.DoubleHeightPixels)
+      if (IPPU.HalfWidthPixels)
       {
+         GFX.PixSize = 1;
+         DrawTilePtr = DrawTile16;
+         DrawClippedTilePtr = DrawClippedTile16;
+      }
+      else if (IPPU.DoubleHeightPixels)
+      {
+         GFX.PixSize = 2;
          DrawTilePtr = DrawTile16x2x2;
          DrawClippedTilePtr = DrawClippedTile16x2x2;
       }
       else
       {
+         GFX.PixSize = 2;
          DrawTilePtr = DrawTile16x2;
          DrawClippedTilePtr = DrawClippedTile16x2;
       }
@@ -1321,6 +1301,9 @@ static void DrawBackgroundMode5(uint32_t bg, uint8_t Z1, uint8_t Z2)
    int32_t Y;
    int32_t endy;
    uint8_t depths[2];
+
+   DrawHiResTilePtr = IPPU.HalfWidthPixels ? DrawTile16HalfWidth : DrawTile16;
+   DrawHiResClippedTilePtr = IPPU.HalfWidthPixels ? DrawClippedTile16HalfWidth : DrawClippedTile16;
 
    if (IPPU.Interlace)
    {
@@ -2613,63 +2596,17 @@ void S9xUpdateScreen(void)
    starty = GFX.StartY;
    endy   = GFX.EndY;
 
-   if (PPU.BGMode == 5 || PPU.BGMode == 6 || IPPU.Interlace || IPPU.DoubleHeightPixels)
-   {
-      if (PPU.BGMode == 5 || PPU.BGMode == 6 || IPPU.Interlace)
-      {
-         IPPU.RenderedScreenWidth = 512;
-         x2 = 2;
-      }
-
-      if (IPPU.DoubleHeightPixels)
-      {
-         starty = GFX.StartY * 2;
-         endy = GFX.EndY * 2 + 1;
-      }
-
-      if ((PPU.BGMode == 5 || PPU.BGMode == 6) && !IPPU.DoubleWidthPixels)
-      {
-         /* The game has switched from lo-res to hi-res mode part way down
-          * the screen. Scale any existing lo-res pixels on screen */
-         uint32_t y;
-         for (y = 0; y < starty; y++)
-         {
-            int32_t x;
-            uint16_t* p = (uint16_t*) (GFX.Screen + y * GFX.Pitch2) + 255;
-            uint16_t* q = (uint16_t*) p + 255;
-            for (x = 255; x >= 0; x--, p--, q -= 2)
-               q[0] = q[1] = p[0];
-         }
-         IPPU.DoubleWidthPixels = true;
-         IPPU.HalfWidthPixels = false;
-      }
-      /* BJ: And we have to change the height if Interlace gets set,
-       *     too. */
-      if (IPPU.Interlace && !IPPU.DoubleHeightPixels)
-      {
-         int32_t y;
-
-         starty                    = GFX.StartY * 2;
-         endy                      = GFX.EndY * 2 + 1;
-         IPPU.RenderedScreenHeight = PPU.ScreenHeight << 1;
-         IPPU.DoubleHeightPixels   = true;
-         GFX.Pitch2                = GFX.RealPitch;
-         GFX.Pitch                 = GFX.RealPitch * 2;
-         GFX.PPL                   = GFX.RealPitch;
-         GFX.PPLx2                 = GFX.RealPitch;
-
-         /* The game has switched from non-interlaced to interlaced mode
-          * part way down the screen. Scale everything. */
-         for (y = (int32_t) GFX.StartY - 1; y >= 0; y--)
-         {
-            /* memmove converted: Same malloc, different addresses, and identical addresses at line 0 [Neb]
-             * DS2 DMA notes: This code path is unused [Neb] */
-            memcpy(GFX.Screen + y * 2 * GFX.Pitch2, GFX.Screen + y * GFX.Pitch2, GFX.Pitch2);
-            /* memmove converted: Same malloc, different addresses [Neb] */
-            memcpy(GFX.Screen + (y * 2 + 1) * GFX.Pitch2, GFX.Screen + y * GFX.Pitch2, GFX.Pitch2);
-         }
-      }
-   }
+   /* Keep the embedded port's output at 256x239 even when a game switches
+    * display modes in the middle of a frame. */
+   IPPU.Interlace = false;
+   IPPU.RenderedScreenWidth = SNES_WIDTH;
+   IPPU.RenderedScreenHeight = PPU.ScreenHeight;
+   IPPU.DoubleWidthPixels = false;
+   IPPU.HalfWidthPixels = (PPU.BGMode == 5 || PPU.BGMode == 6);
+   IPPU.DoubleHeightPixels = false;
+   GFX.Pitch2 = GFX.Pitch = GFX.RealPitch;
+   GFX.PPL = GFX.PPLx2 >> 1;
+   GFX.ZPitch = GFX.RealPitch >> 1;
 
    black = BLACK | (BLACK << 16);
 

@@ -111,17 +111,6 @@ void gba_reset(bool hard)
     reset_gba();
 }
 
-uint8_t *gba_backup_ram(void)
-{
-    return gamepak_backup;
-}
-
-size_t gba_backup_ram_size(void)
-{
-    /* Largest possible save type (128 KiB flash). */
-    return 1024 * 128;
-}
-
 size_t gba_state_size(void)
 {
     return GBA_STATE_MEM_SIZE;

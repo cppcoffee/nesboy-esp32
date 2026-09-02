@@ -73,13 +73,24 @@
 #define MAX(A,B) ((A) > (B) ?  (A) : (B))
 #endif
 
-/* nesboy-esp32: route all core allocations to PSRAM (octal, 8 MB). The
- * default heap does not touch PSRAM in this project (SPIRAM_USE_MALLOC off). */
+/* nesboy-esp32: route core allocations to PSRAM (octal, 8 MB). The default
+ * heap does not touch PSRAM in this project (SPIRAM_USE_MALLOC off).
+ * snes_malloc_fast prefers internal RAM for hot per-frame buffers and falls
+ * back to PSRAM when internal RAM runs out. */
 #include "esp_heap_caps.h"
 
 static INLINE void *snes_malloc(size_t size)
 {
    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+static INLINE void *snes_malloc_fast(size_t size)
+{
+   void *ptr = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+   if (!ptr) {
+      ptr = snes_malloc(size);
+   }
+   return ptr;
 }
 
 static INLINE void *snes_calloc(size_t n, size_t size)

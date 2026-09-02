@@ -2276,9 +2276,9 @@ void init_memory(void)
   memset(io_registers, 0, sizeof(io_registers));
   memset(oam_ram, 0, sizeof(oam_ram));
   memset(palette_ram, 0, sizeof(palette_ram));
-  memset(iwram, 0, sizeof(iwram));
+  memset(iwram, 0, GBA_IWRAM_SIZE);
   memset(ewram, 0, sizeof(ewram));
-  memset(vram, 0, sizeof(vram));
+  memset(vram, 0, GBA_VRAM_SIZE);
 
   write_ioreg(REG_DISPCNT, 0x80);
   write_ioreg(REG_P1, 0x3FF);
@@ -2387,7 +2387,7 @@ bool memory_read_savestate(const u8 *src)
   if (!(
     bson_read_bytes(memdoc, "iwram", &iwram[0x8000 * SMC_DETECTION], 0x8000) &&
     bson_read_bytes(memdoc, "ewram", ewram, 0x40000) &&
-    bson_read_bytes(memdoc, "vram", vram, sizeof(vram)) &&
+    bson_read_bytes(memdoc, "vram", vram, GBA_VRAM_SIZE) &&
     bson_read_bytes(memdoc, "oamram", oam_ram, sizeof(oam_ram)) &&
     bson_read_bytes(memdoc, "palram", palette_ram, sizeof(palette_ram)) &&
     bson_read_bytes(memdoc, "ioregs", io_registers, sizeof(io_registers)) &&
@@ -2449,7 +2449,7 @@ unsigned memory_write_savestate(u8 *dst)
   bson_start_document(dst, "memory", wbptr);
   bson_write_bytes(dst, "iwram", &iwram[0x8000 * SMC_DETECTION], 0x8000);
   bson_write_bytes(dst, "ewram", ewram, 0x40000);
-  bson_write_bytes(dst, "vram", vram, sizeof(vram));
+  bson_write_bytes(dst, "vram", vram, GBA_VRAM_SIZE);
   bson_write_bytes(dst, "oamram", oam_ram, sizeof(oam_ram));
   bson_write_bytes(dst, "palram", palette_ram, sizeof(palette_ram));
   bson_write_bytes(dst, "ioregs", io_registers, sizeof(io_registers));
@@ -2548,9 +2548,14 @@ static s32 load_gamepak_raw(const char *name)
 #ifdef GBSP_PSRAM
 bool gbsp_memory_init(void)
 {
-  /* 512 KB: too big for internal DRAM, allocate in PSRAM (octal). */
+  /* Struct (~512 KB with vram/iwram now split out) stays in PSRAM (octal);
+   * hot vram/iwram go to internal RAM with PSRAM fallback. */
   gbsp_memory = heap_caps_malloc(sizeof(*gbsp_memory), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  return gbsp_memory != NULL;
+  if (!gbsp_memory)
+    return false;
+  gbsp_memory->vram = gbsp_hot_malloc(GBA_VRAM_SIZE);
+  gbsp_memory->iwram = gbsp_hot_malloc(GBA_IWRAM_SIZE);
+  return gbsp_memory->vram && gbsp_memory->iwram;
 }
 #endif
 

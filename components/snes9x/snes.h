@@ -32,10 +32,6 @@ void snes_run_frame(void);
 
 void snes_reset(void);
 
-/* Battery RAM: up to 64 KiB (SRAM_SIZE). */
-uint8_t *snes_sram(void);
-size_t snes_sram_size(void);
-
 /* Save states. snes_state_size() is an upper bound; snes_save_state_mem
  * writes the exact size. */
 size_t snes_state_size(void);

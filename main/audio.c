@@ -12,6 +12,7 @@
 
 #include "app_config.h"
 #include "audio.h"
+#include "frame_stats.h"
 
 enum {
     AUDIO_MAX_SAMPLES_PER_FRAME = AUDIO_RATE / 50 + 2,
@@ -34,6 +35,10 @@ struct audio_state {
     QueueHandle_t ready_queue;
     audio_frame_t frames[2];
     int volume_pct;
+    int resample_src_rate;
+    uint64_t resample_phase;
+    int16_t resample_prev[2];
+    bool resample_have_prev;
 };
 
 static struct audio_state au;
@@ -132,6 +137,18 @@ void audio_flush(void)
     while (xQueueReceive(au.ready_queue, &frame, 0) == pdTRUE) {
         xQueueSend(au.free_queue, &frame, 0);
     }
+    au.resample_have_prev = false;
+    au.resample_phase = 0;
+    au.resample_src_rate = 0;
+}
+
+static audio_frame_t *audio_acquire_frame(void)
+{
+    audio_frame_t *frame;
+    frame_stats_audio_wait_begin();
+    xQueueReceive(au.free_queue, &frame, portMAX_DELAY);
+    frame_stats_audio_wait_end();
+    return frame;
 }
 
 static void audio_write_frame(const int16_t *buf, int samples, bool stereo)
@@ -159,8 +176,7 @@ static void audio_write_frame(const int16_t *buf, int samples, bool stereo)
         }
     }
 
-    audio_frame_t *frame;
-    xQueueReceive(au.free_queue, &frame, portMAX_DELAY);
+    audio_frame_t *frame = audio_acquire_frame();
     frame->samples = samples;
     int volume_q8 = (au.volume_pct * 256 + 50) / 100;
     for (int i = 0; i < samples; i++) {
@@ -185,46 +201,65 @@ void audio_write_stereo(const int16_t *buf, int samples)
 
 void audio_write_stereo_resampled(const int16_t *buf, int samples, int src_rate)
 {
-    if (samples <= 0 || src_rate == AUDIO_RATE) {
+    if (samples <= 0 || src_rate <= 0) {
+        ESP_LOGE(TAG, "invalid resampler input: %d samples at %d Hz", samples, src_rate);
+        return;
+    }
+    if (src_rate == AUDIO_RATE) {
         audio_write_frame(buf, samples, true);
         return;
     }
 
-    /* Linear-interpolation resampler with persistent fractional phase so the
-     * pitch stays exact across frames even when the ratio is irrational. */
-    static int64_t phase = 0; /* Q32.32 position in the input stream */
-
-    const int64_t step = ((int64_t)src_rate << 32) / AUDIO_RATE;
-    const int frames_out_max = AUDIO_MAX_SAMPLES_PER_FRAME;
-
-    /* Upper bound of produced frames: ceil(samples * AUDIO_RATE / src_rate) */
-    int estimated = (int)(((int64_t)samples * AUDIO_RATE) / src_rate) + 2;
-    if (estimated > frames_out_max) {
-        estimated = frames_out_max;
+    if (au.resample_src_rate != src_rate) {
+        au.resample_src_rate = src_rate;
+        au.resample_phase = 0;
+        au.resample_have_prev = false;
     }
 
-    audio_frame_t *frame;
-    xQueueReceive(au.free_queue, &frame, portMAX_DELAY);
+    /* Walk every input interval, including the interval spanning two calls.
+     * resample_phase is the Q32 distance from the previous input sample to
+     * the next output sample. */
+    const uint64_t one = UINT64_C(1) << 32;
+    const uint64_t step = ((uint64_t)(uint32_t)src_rate << 32) / AUDIO_RATE;
+    audio_frame_t *frame = audio_acquire_frame();
 
     int volume_q8 = (au.volume_pct * 256 + 50) / 100;
     int produced = 0;
+    bool overflow = false;
 
-    while (produced < estimated) {
-        int idx = (int)(phase >> 32);
-        if (idx >= samples - 1) {
-            break;
+    for (int i = 0; i < samples; i++) {
+        int16_t current_left = buf[i * 2];
+        int16_t current_right = buf[i * 2 + 1];
+        if (!au.resample_have_prev) {
+            au.resample_prev[0] = current_left;
+            au.resample_prev[1] = current_right;
+            au.resample_have_prev = true;
+            continue;
         }
-        int frac = (int)((phase >> 16) & 0xFFFF); /* Q16 */
-        int left = buf[idx * 2] + ((((buf[idx * 2 + 2] - buf[idx * 2]) * frac) >> 16));
-        int right = buf[idx * 2 + 1] + ((((buf[idx * 2 + 3] - buf[idx * 2 + 1]) * frac) >> 16));
-        frame->data[produced * 2] = (int16_t)((left * volume_q8) >> 8);
-        frame->data[produced * 2 + 1] = (int16_t)((right * volume_q8) >> 8);
-        produced++;
-        phase += step;
+
+        while (au.resample_phase < one) {
+            if (produced < AUDIO_MAX_SAMPLES_PER_FRAME) {
+                uint32_t frac = (uint32_t)(au.resample_phase >> 16);
+                int left = au.resample_prev[0] +
+                           (int)(((int64_t)(current_left - au.resample_prev[0]) * frac) >> 16);
+                int right = au.resample_prev[1] +
+                            (int)(((int64_t)(current_right - au.resample_prev[1]) * frac) >> 16);
+                frame->data[produced * 2] = (int16_t)((left * volume_q8) >> 8);
+                frame->data[produced * 2 + 1] = (int16_t)((right * volume_q8) >> 8);
+                produced++;
+            } else {
+                overflow = true;
+            }
+            au.resample_phase += step;
+        }
+        au.resample_phase -= one;
+        au.resample_prev[0] = current_left;
+        au.resample_prev[1] = current_right;
     }
 
-    /* Whole input frames fully consumed are dropped from the phase. */
-    phase &= 0xFFFFFFFF; /* keep fractional phase, drop whole-frame part */
+    if (overflow) {
+        ESP_LOGE(TAG, "resampled frame exceeded %d samples", AUDIO_MAX_SAMPLES_PER_FRAME);
+    }
 
     if (produced > 0) {
         frame->samples = produced;

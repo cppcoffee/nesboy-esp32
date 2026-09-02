@@ -18,13 +18,13 @@
 
 #include <string.h>
 
-#define SNES_AUDIO_RATE 32000
-
 static void (*frame_video_cb)(void *pixels);
 static void (*frame_audio_cb)(const int16_t *samples, int frames);
 
 static int16_t *audio_buffer;
 static uint32_t audio_buffer_samples;
+static uint32_t audio_frame_remainder;
+static uint32_t audio_fps;
 
 /* Frame skipping controlled by the port: when set, the PPU output is not
  * rendered but the CPU/APU still run at full speed. */
@@ -67,17 +67,17 @@ bool S9xInitDisplay(void)
     GFX.RealPitch = GFX.Pitch2 = GFX.Pitch;
     GFX.ZPitch = SNES_WIDTH;
     GFX.Screen = NULL; /* set by snes_set_framebuffer */
-    GFX.SubScreen = malloc(GFX.Pitch * SNES_HEIGHT_EXTENDED);
-    GFX.ZBuffer = malloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED);
-    GFX.SubZBuffer = malloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED);
+    GFX.SubScreen = snes_malloc(GFX.Pitch * SNES_HEIGHT_EXTENDED);
+    GFX.ZBuffer = snes_malloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED);
+    GFX.SubZBuffer = snes_malloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED);
     return GFX.SubScreen && GFX.ZBuffer && GFX.SubZBuffer;
 }
 
 void S9xDeinitDisplay(void)
 {
-    free(GFX.SubScreen);   GFX.SubScreen = NULL;
-    free(GFX.ZBuffer);     GFX.ZBuffer = NULL;
-    free(GFX.SubZBuffer);  GFX.SubZBuffer = NULL;
+    snes_free(GFX.SubScreen);   GFX.SubScreen = NULL;
+    snes_free(GFX.ZBuffer);     GFX.ZBuffer = NULL;
+    snes_free(GFX.SubZBuffer);  GFX.SubZBuffer = NULL;
 }
 
 /* The legacy SPC700 core accumulates DSP output while the emulated frame
@@ -89,7 +89,16 @@ static void snes_audio_flush(void)
         return;
     }
 
-    int32_t wanted = SNES_AUDIO_RATE / 60 * 2; /* stereo frames */
+    uint32_t fps = Memory.ROMFramesPerSecond == 50 ? 50 : 60;
+    if (audio_fps != fps) {
+        audio_fps = fps;
+        audio_frame_remainder = 0;
+    }
+
+    uint32_t total = Settings.SoundPlaybackRate + audio_frame_remainder;
+    uint32_t frames = total / fps;
+    audio_frame_remainder = total % fps;
+    int32_t wanted = (int32_t)(frames * 2); /* interleaved stereo samples */
     S9xMixSamples(audio_buffer, wanted);
     frame_audio_cb(audio_buffer, wanted >> 1);
 }
@@ -130,9 +139,9 @@ int snes_init(int audio_rate,
         return -1;
     }
 
-    /* Allocate the mix buffer: one frame of audio at 32 kHz. */
-    audio_buffer_samples = SNES_AUDIO_RATE / 60 * 2;
-    audio_buffer = snes_malloc(audio_buffer_samples * sizeof(int16_t));
+    /* One PAL frame is the largest audio block. */
+    audio_buffer_samples = ((uint32_t)audio_rate + 49) / 50 * 2;
+    audio_buffer = snes_malloc_fast(audio_buffer_samples * sizeof(int16_t));
     if (!audio_buffer) {
         return -1;
     }
@@ -171,21 +180,14 @@ void snes_run_frame(void)
     IPPU.RenderThisFrame = !snes_skip_video;
     S9xMainLoop();
     snes_audio_flush();
+    if (frame_video_cb && !snes_skip_video && GFX.Screen) {
+        frame_video_cb(GFX.Screen);
+    }
 }
 
 void snes_reset(void)
 {
     S9xReset();
-}
-
-uint8_t *snes_sram(void)
-{
-    return Memory.SRAM;
-}
-
-size_t snes_sram_size(void)
-{
-    return SRAM_SIZE;
 }
 
 /* --- Save states (in-memory) --- */

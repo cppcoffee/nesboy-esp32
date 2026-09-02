@@ -14,7 +14,8 @@ struct frame_stats_state {
     uint64_t frames;
     int64_t fps_timer;
     int64_t frame_start;
-    int64_t audio_start;
+    int64_t audio_wait_start;
+    int64_t frame_audio_wait_us;
     int64_t emulate_us;
     int64_t emulate_max_us;
     int64_t audio_wait_us;
@@ -25,22 +26,35 @@ static struct frame_stats_state fs;
 void frame_stats_begin(void)
 {
     fs.frame_start = esp_timer_get_time();
+    fs.frame_audio_wait_us = 0;
+    fs.audio_wait_start = 0;
     if (fs.fps_timer == 0) {
         fs.fps_timer = fs.frame_start;
     }
 }
 
-void frame_stats_emulation_done(void)
+void frame_stats_audio_wait_begin(void)
 {
-    fs.audio_start = esp_timer_get_time();
+    fs.audio_wait_start = esp_timer_get_time();
+}
+
+void frame_stats_audio_wait_end(void)
+{
+    if (fs.audio_wait_start != 0) {
+        fs.frame_audio_wait_us += esp_timer_get_time() - fs.audio_wait_start;
+        fs.audio_wait_start = 0;
+    }
 }
 
 void frame_stats_end(void)
 {
     int64_t frame_end = esp_timer_get_time();
-    int64_t frame_emulate_us = fs.audio_start - fs.frame_start;
+    int64_t frame_emulate_us = frame_end - fs.frame_start - fs.frame_audio_wait_us;
+    if (frame_emulate_us < 0) {
+        frame_emulate_us = 0;
+    }
     fs.emulate_us += frame_emulate_us;
-    fs.audio_wait_us += frame_end - fs.audio_start;
+    fs.audio_wait_us += fs.frame_audio_wait_us;
     if (frame_emulate_us > fs.emulate_max_us) {
         fs.emulate_max_us = frame_emulate_us;
     }
