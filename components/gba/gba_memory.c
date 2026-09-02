@@ -2217,15 +2217,6 @@ u8 *load_gamepak_page(u32 physical_index)
 void init_gamepak_buffer(void)
 {
   unsigned i;
-  // Try to allocate up to ROM_BUFFER_SIZE blocks of 1MB each in PSRAM
-  gamepak_buffer_count = 0;
-  while (gamepak_buffer_count < ROM_BUFFER_SIZE)
-  {
-    void *ptr = heap_caps_malloc(gamepak_buffer_blocksize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!ptr)
-      break;
-    gamepak_buffers[gamepak_buffer_count++] = (u8*)ptr;
-  }
 
   // Initialize the memory map structure
   for (i = 0; i < 1024; i++)
@@ -2235,7 +2226,24 @@ void init_gamepak_buffer(void)
   }
 
   gamepak_lru_head = 0;
-  gamepak_lru_tail = 32 * gamepak_buffer_count - 1;
+  gamepak_lru_tail = 0;
+}
+
+// Allocate ROM cache blocks for the loaded gamepak: exactly as many 1 MB
+// blocks as the ROM needs (capped at ROM_BUFFER_SIZE), so small ROMs leave
+// PSRAM for the rewind ring instead of pre-reserving the full cache.
+static void gamepak_reserve_blocks(unsigned want)
+{
+  while (gamepak_buffer_count < want && gamepak_buffer_count < ROM_BUFFER_SIZE)
+  {
+    void *ptr = heap_caps_malloc(gamepak_buffer_blocksize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!ptr)
+      break;
+    gamepak_buffers[gamepak_buffer_count++] = (u8*)ptr;
+  }
+
+  if (gamepak_buffer_count > 0)
+    gamepak_lru_tail = 32 * gamepak_buffer_count - 1;
 }
 
 bool gamepak_must_swap(void)
@@ -2514,8 +2522,11 @@ static s32 load_gamepak_raw(const char *name)
     fseek(gamepak_file_large, 0, SEEK_SET);
     gamepak_size = (gamepak_size + 0x7FFF) & ~0x7FFF;
 
-    // Load stuff in 1MB chunks
+    // Reserve exactly the cache the ROM needs (up to ROM_BUFFER_SIZE)
     u32 buf_blocks = (gamepak_size + gamepak_buffer_blocksize-1) / (gamepak_buffer_blocksize);
+    gamepak_reserve_blocks(buf_blocks);
+
+    // Load stuff in 1MB chunks
     u32 rom_blocks = gamepak_size >> 15;
     u32 ldblks = buf_blocks < gamepak_buffer_count ?
                     buf_blocks : gamepak_buffer_count;
