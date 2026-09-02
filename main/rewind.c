@@ -9,14 +9,14 @@
 #include "app_config.h"
 #include "rewind.h"
 
-#define REWIND_SLOTS           NES_REWIND_SLOTS
 #define REWIND_POINT_SECONDS   3
 #define REWIND_DEBOUNCE_FRAMES 3
 #define REWIND_TAG             "rewind"
 
 /* --- Ring buffer of snapshots --- */
 struct rewind_ring {
-    uint8_t *slots[REWIND_SLOTS];
+    uint8_t *slots[NES_REWIND_SLOTS]; /* max ring depth */
+    int slot_count;
     size_t slot_size;
     int write_idx;  /* next slot to write into */
     int oldest_idx; /* oldest valid slot */
@@ -54,6 +54,7 @@ static struct {
     struct rewind_playback play;
     struct rewind_input input;
     bool paused;
+    int requested_slots;
 } rw;
 
 static int oldest_slot(void)
@@ -66,7 +67,7 @@ static int newest_slot(void)
     if (rw.ring.filled == 0) {
         return rw.ring.oldest_idx;
     }
-    return (rw.ring.oldest_idx + rw.ring.filled - 1) % REWIND_SLOTS;
+    return (rw.ring.oldest_idx + rw.ring.filled - 1) % rw.ring.slot_count;
 }
 
 static int ring_distance(int from, int to)
@@ -74,7 +75,7 @@ static int ring_distance(int from, int to)
     if (to >= from) {
         return to - from;
     }
-    return REWIND_SLOTS - from + to;
+    return rw.ring.slot_count - from + to;
 }
 
 void rewind_init(const rewind_backend_t *backend)
@@ -87,6 +88,11 @@ void rewind_init(const rewind_backend_t *backend)
     }
 
     rw.backend = *backend;
+    rw.requested_slots = backend->slots > 0 ? backend->slots : NES_REWIND_SLOTS;
+    if (rw.requested_slots > NES_REWIND_SLOTS) {
+        rw.requested_slots = NES_REWIND_SLOTS;
+    }
+    rw.ring.slot_count = rw.requested_slots;
     rw.ring.slot_size = backend->state_size;
     rw.timing.frames_per_snapshot = backend->refresh_rate * REWIND_POINT_SECONDS;
     rw.timing.frames_per_step = backend->refresh_rate;
@@ -99,7 +105,7 @@ void rewind_init(const rewind_backend_t *backend)
     const char *heap_name = "internal";
 #endif
 
-    for (int i = 0; i < REWIND_SLOTS; i++) {
+    for (int i = 0; i < rw.ring.slot_count; i++) {
         rw.ring.slots[i] = heap_caps_malloc(rw.ring.slot_size, caps);
         if (!rw.ring.slots[i]) {
 #if CONFIG_SPIRAM
@@ -129,8 +135,8 @@ void rewind_init(const rewind_backend_t *backend)
 
     ESP_LOGI(REWIND_TAG,
              "ready: %d slots x %u bytes every %ds in %s (%.1f KB total, %.1f KB PSRAM free, %.1f KB internal free)",
-             REWIND_SLOTS, (unsigned)rw.ring.slot_size, REWIND_POINT_SECONDS, heap_name,
-             (double)(REWIND_SLOTS * rw.ring.slot_size) / 1024.0,
+             rw.ring.slot_count, (unsigned)rw.ring.slot_size, REWIND_POINT_SECONDS, heap_name,
+             (double)(rw.ring.slot_count * rw.ring.slot_size) / 1024.0,
              (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0,
              (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024.0);
 }
@@ -170,11 +176,14 @@ rewind_action_t rewind_frame(bool rewind_key)
         if (rw.timing.frame_count >= rw.timing.frames_per_snapshot) {
             rw.timing.frame_count = 0;
             int written = rw.backend.save(rw.ring.slots[rw.ring.write_idx]);
-            if (written != (int)rw.ring.slot_size) {
+            /* written may be the exact snapshot size (<= slot_size) or the
+             * full slot size depending on the core; only negative values
+             * indicate failure. */
+            if (written < 0 || written > (int)rw.ring.slot_size) {
                 ESP_LOGE(REWIND_TAG, "snapshot failed: %d/%u bytes", written, (unsigned)rw.ring.slot_size);
             } else {
-                rw.ring.write_idx = (rw.ring.write_idx + 1) % REWIND_SLOTS;
-                if (rw.ring.filled < REWIND_SLOTS) {
+                rw.ring.write_idx = (rw.ring.write_idx + 1) % rw.ring.slot_count;
+                if (rw.ring.filled < rw.ring.slot_count) {
                     if (rw.ring.filled == 0) {
                         rw.ring.oldest_idx = 0;
                     }
@@ -206,7 +215,7 @@ rewind_action_t rewind_frame(bool rewind_key)
     if (!pressed && rw.input.prev_pressed) {
         rw.play.active = false;
         rw.ring.filled = ring_distance(rw.ring.oldest_idx, rw.play.pos) + 1;
-        rw.ring.write_idx = (rw.play.pos + 1) % REWIND_SLOTS;
+        rw.ring.write_idx = (rw.play.pos + 1) % rw.ring.slot_count;
         rw.timing.frame_count = 0;
         rw.play.count = 0;
         rw.input.prev_pressed = pressed;
@@ -222,7 +231,7 @@ rewind_action_t rewind_frame(bool rewind_key)
     rw.play.count = 0;
     int oldest = oldest_slot();
     if (rw.play.pos != oldest) {
-        rw.play.pos = (rw.play.pos + REWIND_SLOTS - 1) % REWIND_SLOTS;
+        rw.play.pos = (rw.play.pos + rw.ring.slot_count - 1) % rw.ring.slot_count;
     } else {
         /* wrapped around: jump from the oldest slot back to the newest so
          * holding rewind keeps cycling through the ring instead of stopping */

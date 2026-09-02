@@ -19,6 +19,13 @@ void display_blit(uint8 *bmp);
 /* Scale a 160x144 RGB565 Game Boy frame to 240x216 and center it vertically. */
 void display_blit_gb(const uint16_t *bmp);
 
+/* Blit a 240x160 RGB565 GBA frame, centered vertically on the 240-row screen. */
+void display_blit_gba(const uint16_t *bmp);
+
+/* Blit a 256x224 RGB565 SNES frame: horizontally nearest-neighbor 256->240,
+ * centered vertically on the 240-row screen. */
+void display_blit_snes(const uint16_t *bmp);
+
 /* Adjust backlight brightness by ±delta percent points (clamped 0–100). */
 void display_set_brightness(int delta);
 

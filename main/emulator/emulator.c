@@ -17,10 +17,14 @@ struct emulator {
 
 static const char *const nes_extensions[] = {".nes", NULL};
 static const char *const gb_extensions[] = {".gb", ".gbc", NULL};
+static const char *const gba_extensions[] = {".gba", NULL};
+static const char *const snes_extensions[] = {".sfc", ".smc", ".swc", ".fig", NULL};
 
 static const emulator_t emulators[] = {
     {.extensions = nes_extensions, .run = emulator_nes_run},
     {.extensions = gb_extensions, .run = emulator_gb_run},
+    {.extensions = gba_extensions, .run = emulator_gba_run},
+    {.extensions = snes_extensions, .run = emulator_snes_run},
 };
 
 const emulator_t *emulator_find(const char *rom_path)

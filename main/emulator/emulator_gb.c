@@ -129,6 +129,7 @@ int emulator_gb_run(const char *rom_path)
     const rewind_backend_t rewind_backend = {
         .state_size = gnuboy_state_size(),
         .refresh_rate = 60,
+        .slots = GB_REWIND_SLOTS,
         .save = rewind_save,
         .load = rewind_load,
         .preview = rewind_preview,

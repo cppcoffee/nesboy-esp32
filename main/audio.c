@@ -182,3 +182,54 @@ void audio_write_stereo(const int16_t *buf, int samples)
 {
     audio_write_frame(buf, samples, true);
 }
+
+void audio_write_stereo_resampled(const int16_t *buf, int samples, int src_rate)
+{
+    if (samples <= 0 || src_rate == AUDIO_RATE) {
+        audio_write_frame(buf, samples, true);
+        return;
+    }
+
+    /* Linear-interpolation resampler with persistent fractional phase so the
+     * pitch stays exact across frames even when the ratio is irrational. */
+    static int64_t phase = 0; /* Q32.32 position in the input stream */
+
+    const int64_t step = ((int64_t)src_rate << 32) / AUDIO_RATE;
+    const int frames_out_max = AUDIO_MAX_SAMPLES_PER_FRAME;
+
+    /* Upper bound of produced frames: ceil(samples * AUDIO_RATE / src_rate) */
+    int estimated = (int)(((int64_t)samples * AUDIO_RATE) / src_rate) + 2;
+    if (estimated > frames_out_max) {
+        estimated = frames_out_max;
+    }
+
+    audio_frame_t *frame;
+    xQueueReceive(au.free_queue, &frame, portMAX_DELAY);
+
+    int volume_q8 = (au.volume_pct * 256 + 50) / 100;
+    int produced = 0;
+
+    while (produced < estimated) {
+        int idx = (int)(phase >> 32);
+        if (idx >= samples - 1) {
+            break;
+        }
+        int frac = (int)((phase >> 16) & 0xFFFF); /* Q16 */
+        int left = buf[idx * 2] + ((((buf[idx * 2 + 2] - buf[idx * 2]) * frac) >> 16));
+        int right = buf[idx * 2 + 1] + ((((buf[idx * 2 + 3] - buf[idx * 2 + 1]) * frac) >> 16));
+        frame->data[produced * 2] = (int16_t)((left * volume_q8) >> 8);
+        frame->data[produced * 2 + 1] = (int16_t)((right * volume_q8) >> 8);
+        produced++;
+        phase += step;
+    }
+
+    /* Whole input frames fully consumed are dropped from the phase. */
+    phase &= 0xFFFFFFFF; /* keep fractional phase, drop whole-frame part */
+
+    if (produced > 0) {
+        frame->samples = produced;
+        xQueueSend(au.ready_queue, &frame, portMAX_DELAY);
+    } else {
+        xQueueSend(au.free_queue, &frame, portMAX_DELAY);
+    }
+}

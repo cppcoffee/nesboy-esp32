@@ -104,6 +104,7 @@ int emulator_nes_run(const char *rom_path)
     const rewind_backend_t rewind_backend = {
         .state_size = state_mem_size(),
         .refresh_rate = nes->refresh_rate,
+        .slots = NES_REWIND_SLOTS,
         .save = rewind_save,
         .load = rewind_load,
         .preview = rewind_preview,

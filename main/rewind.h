@@ -7,6 +7,7 @@
 typedef struct {
     size_t state_size;
     int refresh_rate;
+    int slots; /* ring depth; 0 = default (NES_REWIND_SLOTS) */
     int (*save)(uint8_t *buffer);
     int (*load)(const uint8_t *buffer);
     void (*preview)(void);

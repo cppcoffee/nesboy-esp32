@@ -1,8 +1,8 @@
 # nesboy-esp32
 
-Minimal ESP-IDF NES, Game Boy, and Game Boy Color emulator for ESP32-S3.
+Minimal ESP-IDF NES, Game Boy, Game Boy Color, Game Boy Advance, and Super Nintendo emulator for ESP32-S3.
 
-NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, and `.gbc` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo` and `gnuboy` cores from `retro-goretro-go`.
+NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. GBA and SNES target **30 FPS** (every display frame runs two emulated 60 Hz frames; audio from both is merged into the 48 kHz output). On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, `.gbc`, `.gba`, and `.sfc`/`.smc`/`.swc`/`.fig` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo` and `gnuboy` cores from `retro-goretro-go`, a `gpSP` interpreter core (`components/gba`), and a trimmed `snes9x` core (`components/snes9x`).
 
 ## Playing Games from the SD Card
 
@@ -11,12 +11,12 @@ The ROM used at runtime is chosen from the SD card at boot. Changing games is no
 ### Setup
 
 1. **Format the SD card as FAT32** (most cards come pre-formatted; a 32 GB card works fine). The ESP-IDF FATFS in this build does *not* support exFAT, so exFAT-formatted cards must be reformatted to FAT32 first.
-2. **Copy `.nes`, `.gb`, or `.gbc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed. Other files are hidden from the browser.
+2. **Copy `.nes`, `.gb`, `.gbc`, `.gba`, or `.sfc`/`.smc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed; GBA ROMs stream from the card with an 8 MB PSRAM cache; SNES ROMs up to 6 MB are loaded into PSRAM. Other files are hidden from the browser.
 3. Insert the card and power on the board.
 
 ### Using the browser
 
-The browser appears at boot, listing directories and `.nes`, `.gb`, and `.gbc` ROM files (directories first, then files, alphabetically; extension matching is case-insensitive). It handles FAT filesystems that report directory entries as `DT_UNKNOWN` and supports up to 1024 visible entries per folder. It is a one-shot startup picker: after a ROM is selected, the browser is gone for the rest of the session — to pick another game, reset/re-power the ESP32.
+The browser appears at boot, listing directories and `.nes`, `.gb`, `.gbc`, `.gba`, and `.sfc`/`.smc`/`.swc`/`.fig` ROM files (directories first, then files, alphabetically; extension matching is case-insensitive). It handles FAT filesystems that report directory entries as `DT_UNKNOWN` and supports up to 1024 visible entries per folder. It is a one-shot startup picker: after a ROM is selected, the browser is gone for the rest of the session — to pick another game, reset/re-power the ESP32.
 
 While a ROM is highlighted, the browser shows box art in the bottom-right corner: a 24/32-bit uncompressed BMP named after the ROM without its extension (e.g. `smb.nes` → `smb.bmp`). Any image can be converted with ImageMagick (`magick cover.png -resize 192x192 smb.bmp`) or `sips -s format bmp cover.png --out smb.bmp`; the browser scales it automatically. Missing or unreadable images are simply skipped.
 
@@ -52,6 +52,24 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - Battery-backed RAM is loaded from a `.sav` file beside the ROM and automatically saved after it changes.
 - The dedicated Rewind button works for GB and GBC games as well as NES.
 
+### Game Boy Advance notes
+
+- `.gba` uses the `gpSP` interpreter core (no BIOS file needed — an open-source BIOS is compiled in).
+- The native 240×160 image is drawn 1:1 and centered vertically (40 black rows top and bottom).
+- The core renders at 60 Hz internally; each 30 Hz display frame runs two emulated frames with the audio from both merged and resampled 32.768 kHz → 48 kHz (linear interpolation, phase-continuous).
+- The interpreter is single-core; demanding 3D titles may occasionally drop below 30 FPS. Frameskip is not automatic.
+- Battery RAM (SRAM/flash) is loaded from a `.sav` file beside the ROM and saved after it changes.
+- Save states and rewind work; each GBA snapshot is 416 KB, so rewind keeps 2 slots (6 s of history).
+
+### Super Nintendo notes
+
+- `.sfc`, `.smc`, `.swc`, and `.fig` use a trimmed `snes9x` interpreter core (Snes9x license, see `components/snes9x/src/LICENSE`).
+- The native 256×224 image is scaled horizontally to 240 columns with nearest-neighbor (15:16 — one source column dropped per 16) and centered vertically (8 black rows top and bottom).
+- Two emulated frames run per 30 Hz display frame; the 32 kHz stereo audio from both is resampled to the 48 kHz output. PAL games run ~2.5% fast at this pace.
+- Special-chip games are **not** supported by this trimmed core: no SuperFX (Star Fox, Yoshi's Island), no SA-1 (Super Mario RPG), no SDD-1, no SPC7110, and no DSP-1 (Mario Kart's OK/only partly). Standard LoROM/HiROM games work.
+- Battery RAM (`.srm`, up to 64 KB) is loaded from a file beside the ROM and saved after it changes.
+- Save states and rewind work; each SNES snapshot is ~357 KB, so rewind keeps 2 slots (6 s of history).
+
 ## Flashing / Rebuilding
 
 1. **Build** — With the ESP-IDF environment loaded, run:
@@ -69,7 +87,7 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 
 ### Notes
 
-- Supported ROM formats are `.nes`, `.gb`, and `.gbc`; compressed archives are not supported.
+- Supported ROM formats are `.nes`, `.gb`, `.gbc`, `.gba`, and `.sfc`/`.smc`/`.swc`/`.fig`; compressed archives are not supported.
 - If the screen stays white or black after selecting a ROM, the ROM may be incompatible with the selected core.
 
 ## Build
@@ -84,11 +102,11 @@ idf.py -p /dev/tty.usbmodemXXXX flash monitor
 
 ## Rewind
 
-For NES, GB, and GBC games, a dedicated **Rewind** button (GPIO 8, active-low) scrubs the game backward while held. The longer you hold it, the farther back it goes, in roughly 1-second steps; releasing the button stops the rewind and continues from the restored point. At the oldest snapshot the playback wraps around and cycles back to the newest one, so holding the button keeps looping through the ring.
+For NES, GB, GBC, GBA, and SNES games, a dedicated **Rewind** button (GPIO 8, active-low) scrubs the game backward while held. The longer you hold it, the farther back it goes, in roughly 1-second steps; releasing the button stops the rewind and continues from the restored point. At the oldest snapshot the playback wraps around and cycles back to the newest one, so holding the button keeps looping through the ring.
 
 While the button is held, normal gameplay and audio output are paused. Each rewind step restores an older snapshot, previews a frame, and restores the snapshot again so gameplay continues from the selected point when the button is released.
 
-Internally the emulator captures one in-memory state snapshot every 3 seconds into a 6-slot ring buffer (about 18 seconds of history). NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation, with automatic fallback to internal RAM if PSRAM fails. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
+Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; GBA snapshots are 416 KB each and SNES snapshots ~357 KB. To bound the PSRAM budget, the ring depth is tuned per core: 6 slots for NES/SMS (~18 s of history), 4 for GB/GBC (12 s), 2 for GBA (6 s) and SNES (6 s). Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation, with automatic fallback to internal RAM if PSRAM fails. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
 
 ### Memory lifecycle
 
