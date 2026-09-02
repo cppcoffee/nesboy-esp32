@@ -11,7 +11,7 @@ The ROM used at runtime is chosen from the SD card at boot. Changing games is no
 ### Setup
 
 1. **Format the SD card as FAT32** (most cards come pre-formatted; a 32 GB card works fine). The ESP-IDF FATFS in this build does *not* support exFAT, so exFAT-formatted cards must be reformatted to FAT32 first.
-2. **Copy `.nes`, `.gb`, `.gbc`, `.gba`, or `.sfc`/`.smc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed; GBA ROMs stream from the card with an 8 MB PSRAM cache; SNES ROMs up to 6 MB are loaded into PSRAM. Other files are hidden from the browser.
+2. **Copy `.nes`, `.gb`, `.gbc`, `.gba`, or `.sfc`/`.smc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed; GBA ROMs stream from the card with a 4 MB PSRAM cache; SNES ROMs up to 4 MB are loaded into PSRAM. Other files are hidden from the browser.
 3. Insert the card and power on the board.
 
 ### Using the browser
@@ -59,7 +59,7 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - The core renders at 60 Hz internally; each 30 Hz display frame runs two emulated frames with the audio from both merged and resampled 32.768 kHz → 48 kHz (linear interpolation, phase-continuous).
 - The interpreter is single-core; demanding 3D titles may occasionally drop below 30 FPS. Frameskip is not automatic.
 - Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
-- Save states and rewind work; each GBA snapshot is 416 KB, so rewind keeps 5 slots (15 s of history). The ROM cache tops out at 6 MB; larger ROMs stream 32 KB pages from the SD card and, if PSRAM runs short, rewind disables itself gracefully.
+- Save states and rewind work; each GBA snapshot is 416 KB, so rewind keeps 5 slots (15 s of history). The ROM cache tops out at 4 MB; larger ROMs stream 32 KB pages from the SD card as needed.
 
 ### Super Nintendo notes
 
@@ -106,7 +106,7 @@ For NES, GB, GBC, GBA, and SNES games, a dedicated **Rewind** button (GPIO 8, ac
 
 While the button is held, normal gameplay and audio output are paused. Each rewind step restores an older snapshot, previews a frame, and restores the snapshot again so gameplay continues from the selected point when the button is released.
 
-Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; GBA snapshots are 416 KB each and SNES snapshots ~357 KB. To bound the PSRAM budget, the ring depth is 5 slots for every core (15 s of history); the SNES ROM buffer is capped at 4 MB and the GBA ROM cache at 6 MB to make that fit. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation; if PSRAM runs short (large GBA ROMs), as many slots are allocated as fit and the history shortens instead of rewind disabling itself — only a total allocation failure turns rewind off. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
+Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; GBA snapshots are 416 KB each and SNES snapshots ~357 KB. To bound the PSRAM budget, the ring depth is 5 slots for every core (15 s of history); the SNES ROM buffer and the GBA ROM cache are capped at 4 MB so the slots always fit, with larger ROMs streaming from the SD card. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation; if PSRAM ever runs short, as many slots are allocated as fit and the history shortens instead of rewind disabling itself — only a total allocation failure turns rewind off. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
 
 ### Memory lifecycle
 

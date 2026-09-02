@@ -11,9 +11,10 @@
  * cartridge RAM, 416 KB for GBA and 357 KB for SNES); one slot is captured
  * every 3 seconds, so history length = slots * 3 s (5 slots = 15 s). Slots
  * are allocated in PSRAM and fall back to internal RAM if needed. The SNES
- * ROM buffer is capped at 4 MB to leave room for its 5 slots; GBA's ROM
- * cache tops out at 6 MB, so ROMs larger than that stream pages from the
- * SD card and, on PSRAM pressure, rewind disables itself gracefully. */
+ * ROM buffer and the GBA ROM cache are both capped at 4 MB so the full 5
+ * slots always fit; larger ROMs stream 32 KB pages from the SD card
+ * (read-only). If PSRAM still runs short, rewind shortens its history
+ * rather than disabling itself. */
 #define NES_REWIND_SLOTS       5
 #define GB_REWIND_SLOTS        5
 #define GBA_REWIND_SLOTS       5
