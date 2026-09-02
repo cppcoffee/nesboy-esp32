@@ -59,7 +59,7 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - The core renders at 60 Hz internally; each 30 Hz display frame runs two emulated frames with the audio from both merged and resampled 32.768 kHz → 48 kHz (linear interpolation, phase-continuous).
 - The interpreter is single-core; demanding 3D titles may occasionally drop below 30 FPS. Frameskip is not automatic.
 - Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
-- Save states and rewind work; each GBA snapshot is 416 KB, so rewind keeps 6 slots (18 s of history; ROMs larger than ~4 MB leave too little PSRAM and rewind disables itself).
+- Save states and rewind work; each GBA snapshot is 416 KB, so rewind keeps 5 slots (15 s of history). The ROM cache tops out at 6 MB; larger ROMs stream 32 KB pages from the SD card and, if PSRAM runs short, rewind disables itself gracefully.
 
 ### Super Nintendo notes
 
@@ -68,7 +68,7 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - Rendering targets 30 FPS while emulation and 32 kHz stereo audio retain the ROM's native 60 Hz (NTSC) or 50 Hz (PAL) timing; audio is resampled continuously to the 48 kHz output.
 - Special-chip games are **not** supported by this trimmed core: no SuperFX (Star Fox, Yoshi's Island), no SA-1 (Super Mario RPG), no SDD-1, no SPC7110, and no DSP-1 (Mario Kart's OK/only partly). Standard LoROM/HiROM games work.
 - Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
-- Save states and rewind work; each SNES snapshot is ~357 KB, so rewind keeps 2 slots (6 s of history).
+- Save states and rewind work; each SNES snapshot is ~357 KB, so rewind keeps 5 slots (15 s of history). The ROM buffer is capped at 4 MB to make room, so 6 MB cartridges (Tales of Phantasia, Star Ocean, ...) cannot load.
 
 ## Flashing / Rebuilding
 
@@ -106,7 +106,7 @@ For NES, GB, GBC, GBA, and SNES games, a dedicated **Rewind** button (GPIO 8, ac
 
 While the button is held, normal gameplay and audio output are paused. Each rewind step restores an older snapshot, previews a frame, and restores the snapshot again so gameplay continues from the selected point when the button is released.
 
-Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; GBA snapshots are 416 KB each and SNES snapshots ~357 KB. To bound the PSRAM budget, the ring depth is tuned per core: 6 slots for NES/SMS (~18 s of history), GB/GBC (18 s) and GBA (18 s), and 2 for SNES (6 s — the 6 MB ROM buffer and core buffers leave no PSRAM headroom for more). Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation, with automatic fallback to internal RAM if PSRAM fails. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
+Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; GBA snapshots are 416 KB each and SNES snapshots ~357 KB. To bound the PSRAM budget, the ring depth is 5 slots for every core (15 s of history); the SNES ROM buffer is capped at 4 MB and the GBA ROM cache at 6 MB to make that fit. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation, with automatic fallback to internal RAM if PSRAM fails. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
 
 ### Memory lifecycle
 

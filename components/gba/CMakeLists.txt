@@ -5,7 +5,7 @@ idf_component_register(
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    ROM_BUFFER_SIZE=8
+    ROM_BUFFER_SIZE=6
     OVERCLOCK_60FPS
     GBSP_PSRAM
 )

@@ -92,7 +92,7 @@ static void rewind_preview(void)
 
 int emulator_gba_run(const char *rom_path)
 {
-    /* GBA ROMs are large: cache 8 MB of the ROM in PSRAM (the core swaps
+    /* GBA ROMs are large: cache up to 6 MB of the ROM in PSRAM (the core swaps
      * 32 KB pages from the file on the SD card beyond that). The 77 KB
      * frame buffer also lives in PSRAM — the blit is a per-row copy loop,
      * so PSRAM latency is negligible, and it keeps internal RAM for the
