@@ -92,50 +92,31 @@ void rewind_init(const rewind_backend_t *backend)
     if (rw.requested_slots > NES_REWIND_SLOTS) {
         rw.requested_slots = NES_REWIND_SLOTS;
     }
-    rw.ring.slot_count = rw.requested_slots;
     rw.ring.slot_size = backend->state_size;
     rw.timing.frames_per_snapshot = backend->refresh_rate * REWIND_POINT_SECONDS;
     rw.timing.frames_per_step = backend->refresh_rate;
 
-#if CONFIG_SPIRAM
-    uint32_t caps = MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM;
-    const char *heap_name = "psram";
-#else
-    uint32_t caps = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
-    const char *heap_name = "internal";
-#endif
-
-    for (int i = 0; i < rw.ring.slot_count; i++) {
-        rw.ring.slots[i] = heap_caps_malloc(rw.ring.slot_size, caps);
+    /* Allocate as many slots as PSRAM can hold. Rewind runs with a shorter
+     * history rather than disabling itself; only a total allocation failure
+     * (0 slots) turns it off. */
+    for (int i = 0; i < rw.requested_slots; i++) {
+        rw.ring.slots[i] = heap_caps_malloc(rw.ring.slot_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!rw.ring.slots[i]) {
-#if CONFIG_SPIRAM
-            if (caps & MALLOC_CAP_SPIRAM) {
-                ESP_LOGW(REWIND_TAG, "psram allocation failed, retrying internal heap");
-                for (int j = 0; j < i; j++) {
-                    free(rw.ring.slots[j]);
-                    rw.ring.slots[j] = NULL;
-                }
-                caps = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
-                heap_name = "internal";
-                i = -1;
-                continue;
-            }
-#endif
-            ESP_LOGE(REWIND_TAG, "out of memory: slot %d (%u bytes), rewind disabled", i, (unsigned)rw.ring.slot_size);
-            for (int j = 0; j < i; j++) {
-                free(rw.ring.slots[j]);
-                rw.ring.slots[j] = NULL;
-            }
-            rw.input.ready = false;
-            return;
+            break;
         }
+        rw.ring.slot_count++;
+    }
+
+    if (rw.ring.slot_count == 0) {
+        ESP_LOGE(REWIND_TAG, "out of memory: slot 0 (%u bytes), rewind disabled", (unsigned)rw.ring.slot_size);
+        return;
     }
 
     rw.input.ready = true;
 
     ESP_LOGI(REWIND_TAG,
-             "ready: %d slots x %u bytes every %ds in %s (%.1f KB total, %.1f KB PSRAM free, %.1f KB internal free)",
-             rw.ring.slot_count, (unsigned)rw.ring.slot_size, REWIND_POINT_SECONDS, heap_name,
+             "ready: %d/%d slots x %u bytes every %ds in psram (%.1f KB total, %.1f KB PSRAM free, %.1f KB internal free)",
+             rw.ring.slot_count, rw.requested_slots, (unsigned)rw.ring.slot_size, REWIND_POINT_SECONDS,
              (double)(rw.ring.slot_count * rw.ring.slot_size) / 1024.0,
              (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0,
              (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024.0);
