@@ -67,9 +67,3 @@ void sms_set_pad(int pad);
 size_t sms_state_size(void);
 int sms_save_state_mem(void *buffer, size_t size);
 int sms_load_state_mem(const void *buffer, size_t size);
-
-/* Battery RAM persistence: returns true when the cart has battery-backed
- * RAM that changed since the last sync. */
-bool sms_sram_dirty(void);
-int sms_load_sram(const char *file);
-int sms_save_sram(const char *file);

@@ -53,7 +53,6 @@ static struct {
     struct rewind_timing timing;
     struct rewind_playback play;
     struct rewind_input input;
-    bool paused;
     int requested_slots;
 } rw;
 
@@ -148,11 +147,6 @@ rewind_action_t rewind_frame(bool rewind_key)
 
     bool pressed = rewind_pressed(rewind_key);
 
-    if (rw.paused) {
-        rw.input.prev_pressed = pressed;
-        return REWIND_ACTION_NORMAL;
-    }
-
     if (!rw.play.active) {
         if (rw.timing.frame_count >= rw.timing.frames_per_snapshot) {
             rw.timing.frame_count = 0;
@@ -239,11 +233,6 @@ void rewind_redraw(void)
     if (rw.backend.load(rw.ring.slots[rw.play.pos]) < 0) {
         ESP_LOGE(REWIND_TAG, "post-preview restore failed");
     }
-}
-
-void rewind_set_paused(bool paused)
-{
-    rw.paused = paused;
 }
 
 void rewind_clear(void)

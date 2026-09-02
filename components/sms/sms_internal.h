@@ -27,7 +27,6 @@ struct sms_state {
     uint8_t page[3];
     bool sram_enabled;
     int sram_bank; /* 0: 0x8000-0xBFFF, 1: 0x4000-0x7FFF */
-    bool sram_dirty;
 
     const uint8_t *map[4]; /* 4 x 16 KB slots, 8 KB granularity via offset */
 

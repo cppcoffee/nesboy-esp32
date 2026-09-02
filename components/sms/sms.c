@@ -261,39 +261,4 @@ int sms_load_state_mem(const void *buffer, size_t size)
     return 0;
 }
 
-bool sms_sram_dirty(void)
-{
-    return sms.sram_size > 0 && sms.sram_dirty;
-}
 
-int sms_load_sram(const char *file)
-{
-    if (!sms.sram_size || !file) {
-        return -1;
-    }
-    FILE *f = fopen(file, "rb");
-    if (!f) {
-        return -1;
-    }
-    size_t n = fread(sms.sram, 1, sms.sram_size, f);
-    fclose(f);
-    return n == sms.sram_size ? 0 : -1;
-}
-
-int sms_save_sram(const char *file)
-{
-    if (!sms.sram_size || !file) {
-        return -1;
-    }
-    FILE *f = fopen(file, "wb");
-    if (!f) {
-        return -1;
-    }
-    size_t n = fwrite(sms.sram, 1, sms.sram_size, f);
-    fclose(f);
-    if (n == sms.sram_size) {
-        sms.sram_dirty = false;
-        return 0;
-    }
-    return -1;
-}

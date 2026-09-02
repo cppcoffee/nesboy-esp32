@@ -112,7 +112,6 @@ int gnuboy_load_rom_file(const char *file);
 void gnuboy_free_rom(void);
 void gnuboy_reset(bool hard);
 void gnuboy_run(bool draw);
-bool gnuboy_sram_dirty(void);
 int gnuboy_load_bank(int bank);
 void gnuboy_set_pad(int);
 
@@ -126,9 +125,6 @@ void gnuboy_set_hwtype(gb_hwtype_t type);
 int gnuboy_get_palette(void);
 void gnuboy_set_palette(gb_palette_t pal);
 
-int gnuboy_load_sram(const char *file);
-/* quick_save updates only dirty/missing banks; false rewrites the complete file. */
-int gnuboy_save_sram(const char *file, bool quick_save);
 int gnuboy_load_state(const char *file);
 int gnuboy_save_state(const char *file);
 

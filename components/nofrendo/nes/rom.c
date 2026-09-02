@@ -27,40 +27,6 @@
 
 static rom_t rom;
 
-/* Save battery-backed RAM */
-void rom_savesram(const char *filename)
-{
-   if (!rom.battery || rom.prg_ram_banks < 1)
-   {
-      MESSAGE_ERROR("ROM: Game has no battery-backed SRAM!\n");
-      return;
-   }
-   FILE *fp = fopen(filename, "wb");
-   if (fp)
-   {
-      fwrite(rom.prg_ram, ROM_PRG_BANK_SIZE, rom.prg_ram_banks, fp);
-      fclose(fp);
-      MESSAGE_INFO("ROM: Wrote battery RAM to %s.\n", filename);
-   }
-}
-
-/* Load battery-backed RAM from disk */
-void rom_loadsram(const char *filename)
-{
-   if (!rom.battery || rom.prg_ram_banks < 1)
-   {
-      MESSAGE_ERROR("ROM: Game has no battery-backed SRAM!\n");
-      return;
-   }
-   FILE *fp = fopen(filename, "rb");
-   if (fp)
-   {
-      fread(rom.prg_ram, ROM_PRG_BANK_SIZE, rom.prg_ram_banks, fp);
-      fclose(fp);
-      MESSAGE_INFO("ROM: Read battery RAM from %s.\n", filename);
-   }
-}
-
 /* Load a ROM from a memory buffer */
 rom_t *rom_loadmem(uint8 *data, size_t size)
 {
