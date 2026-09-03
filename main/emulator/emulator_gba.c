@@ -106,7 +106,7 @@ int emulator_gba_run(const char *rom_path)
         return -1;
     }
 
-    if (gba_init(AUDIO_RATE, GBA_AUDIO_STEREO_S16, GBA_PIXEL_565_LE, video_callback, audio_callback) < 0) {
+    if (gba_init(GBA_AUDIO_RATE, GBA_AUDIO_STEREO_S16, GBA_PIXEL_565_LE, video_callback, audio_callback) < 0) {
         ESP_LOGE(TAG, "gba_init failed");
         return -1;
     }

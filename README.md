@@ -16,16 +16,17 @@ The ROM used at runtime is chosen from the SD card at boot. Changing games is no
 
 ### Using the browser
 
-The browser appears at boot, listing directories and `.nes`, `.gb`, `.gbc`, `.gba`, and `.sfc`/`.smc`/`.swc`/`.fig` ROM files (directories first, then files, alphabetically; extension matching is case-insensitive). It handles FAT filesystems that report directory entries as `DT_UNKNOWN` and supports up to 1024 visible entries per folder. It is a one-shot startup picker: after a ROM is selected, the browser is gone for the rest of the session — to pick another game, reset/re-power the ESP32.
+The browser opens with a pixel-art emulator menu: NES, Game Boy / Color, Game Boy Advance, and Super Nintendo. Press A to enter a system and see only its compatible ROMs; press B from the ROM list to return to the emulator menu. Directories remain available inside each system (Left or Select goes to the parent folder), with directories first and ROMs sorted alphabetically. Extension matching is case-insensitive, and up to 1024 entries are shown per folder. It is a one-shot startup picker: after a ROM is selected, reset/re-power the ESP32 to pick another game.
 
 While a ROM is highlighted, the browser shows box art in the bottom-right corner: a 24/32-bit uncompressed BMP named after the ROM without its extension (e.g. `smb.nes` → `smb.bmp`). Any image can be converted with ImageMagick (`magick cover.png -resize 192x192 smb.bmp`) or `sips -s format bmp cover.png --out smb.bmp`; the browser scales it automatically. Missing or unreadable images are simply skipped.
 
 | Button | Action |
 | --- | --- |
 | Up / Down | Move the cursor (holds auto-repeat) |
-| A / Right | Enter a folder, or select the highlighted ROM and start the game |
-| B / Left / Select | Go up to the parent folder (no action at the root) |
-| Start | Refresh the current folder |
+| A / Right | Enter an emulator, enter a folder, or start the highlighted ROM |
+| B | Return from the ROM browser to the emulator menu |
+| Left / Select | Go to the parent folder inside the ROM browser |
+| Start | Refresh the current ROM folder |
 
 ### Wiring
 
@@ -163,7 +164,7 @@ When enabled, one summary is printed every 600 outer-loop frames for every emula
 
 The log reports `fps`, average and maximum `emulate` work time, and `audio_wait`. Audio-queue blocking is measured where it actually occurs and excluded from `emulate`, so the two values can be used to tell CPU/GPU work from normal audio pacing.
 
-The full 240×240 screen is filled each frame (NES overscan is not cropped) using two 120-line DMA chunks with double buffering; keeping the chunk count at two is what preserves the 60 FPS budget.
+The full 240×240 screen is filled each frame (NES overscan is not cropped) using 20-line DMA chunks with two alternating internal-RAM buffers. This keeps the SPI/GDMA pipeline busy while releasing about 94 KiB of scarce internal RAM for emulator hot memory.
 
 Set `NES_ENABLE_FRAME_STATS` back to `0` for normal builds. The counters, timing, and log formatting are implemented separately in `main/frame_stats.c`.
 

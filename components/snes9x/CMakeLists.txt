@@ -17,6 +17,10 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -O3
+    # SPC700/65816 opcode loops are large switches and only run with the
+    # flash cache enabled; use direct jump-table dispatch.
+    -fjump-tables
+    -ftree-switch-conversion
     -Wno-unused-function
     -Wno-unused-variable
     -Wno-array-bounds

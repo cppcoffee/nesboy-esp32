@@ -239,11 +239,13 @@ void audio_write_stereo_resampled(const int16_t *buf, int samples, int src_rate)
 
         while (au.resample_phase < one) {
             if (produced < AUDIO_MAX_SAMPLES_PER_FRAME) {
-                uint32_t frac = (uint32_t)(au.resample_phase >> 16);
+                /* Q15 keeps the interpolation multiply in the ESP32-S3's
+                 * fast 32-bit path; the worst-case product still fits. */
+                int32_t frac = (int32_t)(au.resample_phase >> 17);
                 int left = au.resample_prev[0] +
-                           (int)(((int64_t)(current_left - au.resample_prev[0]) * frac) >> 16);
+                           (((int32_t)current_left - au.resample_prev[0]) * frac >> 15);
                 int right = au.resample_prev[1] +
-                            (int)(((int64_t)(current_right - au.resample_prev[1]) * frac) >> 16);
+                            (((int32_t)current_right - au.resample_prev[1]) * frac >> 15);
                 frame->data[produced * 2] = (int16_t)((left * volume_q8) >> 8);
                 frame->data[produced * 2 + 1] = (int16_t)((right * volume_q8) >> 8);
                 produced++;

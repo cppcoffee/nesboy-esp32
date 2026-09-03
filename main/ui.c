@@ -136,6 +136,46 @@ void ui_blit(int x, int y, int w, int h, const uint16_t *pixels)
     }
 }
 
+void ui_blit_keyed(int x, int y, int w, int h, const uint16_t *pixels, uint16_t transparent)
+{
+    if (!ui_fb || !pixels || w <= 0 || h <= 0) {
+        return;
+    }
+
+    int src_w = w;
+    int src_x = 0;
+    int src_y = 0;
+    if (x < 0) {
+        src_x = -x;
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        src_y = -y;
+        h += y;
+        y = 0;
+    }
+    if (x + w > LCD_W) {
+        w = LCD_W - x;
+    }
+    if (y + h > LCD_H) {
+        h = LCD_H - y;
+    }
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+
+    for (int row = 0; row < h; row++) {
+        uint16_t *dst = ui_fb + (size_t)(y + row) * LCD_W + x;
+        const uint16_t *src = pixels + (size_t)(src_y + row) * src_w + src_x;
+        for (int col = 0; col < w; col++) {
+            if (src[col] != transparent) {
+                dst[col] = src[col];
+            }
+        }
+    }
+}
+
 void ui_flush(void)
 {
     if (!ui_fb) {

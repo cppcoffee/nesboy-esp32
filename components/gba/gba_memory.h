@@ -345,9 +345,9 @@ unsigned memory_write_savestate(u8 *dst);
 // NOTE: fields must only be accessed after gbsp_memory_init() has run.
 typedef struct
 {
-  u8 *vram;   /* 96 KB, internal RAM preferred */
+  u8 *vram_data;   /* 96 KB, internal RAM preferred */
   u8 ewram[(1024 * 256) << SMC_DETECTION];
-  u8 *iwram;  /* 32 KB, internal RAM preferred */
+  u8 *iwram_data;  /* 32 KB, internal RAM preferred */
   u8 gamepak_backup[1024 * 128];
   /* OBJ rendering priority queues (from video.cpp) */
   u8 obj_priority_list[5][160][128];
@@ -356,9 +356,9 @@ typedef struct
 } gbsp_memory_t;
 
 extern gbsp_memory_t *gbsp_memory;
-#define vram gbsp_memory->vram
+#define vram gbsp_memory->vram_data
 #define ewram gbsp_memory->ewram
-#define iwram gbsp_memory->iwram
+#define iwram gbsp_memory->iwram_data
 #define gamepak_backup gbsp_memory->gamepak_backup
 
 /* Split-out hot buffers are pointers, so code must use these constants

@@ -131,6 +131,7 @@ int emulator_snes_run(const char *rom_path)
     emulator_settings_t settings = {0};
     int previous_buttons = 0;
     uint32_t emulated_frame_phase = 0;
+    uint32_t display_tick_phase = 0;
     TickType_t last_wake = xTaskGetTickCount();
 
     while (1) {
@@ -143,13 +144,20 @@ int emulator_snes_run(const char *rom_path)
         if (emulator_handle_state_controls(rom_path, &rewind_backend, buttons)) {
             vTaskDelay(frame_delay);
             last_wake = xTaskGetTickCount();
+            display_tick_phase = 0;
             continue;
         }
 
         /* The audio queue paces the long-run average; this delay keeps the
          * blit on an even 30 Hz grid so PAL's 1-2-2 emulated-frame pattern
          * does not surface as 20/40 ms blit jitter. */
-        vTaskDelayUntil(&last_wake, frame_delay);
+        TickType_t display_delay = configTICK_RATE_HZ / SNES_DISPLAY_FPS;
+        display_tick_phase += configTICK_RATE_HZ % SNES_DISPLAY_FPS;
+        if (display_tick_phase >= SNES_DISPLAY_FPS) {
+            display_tick_phase -= SNES_DISPLAY_FPS;
+            display_delay++;
+        }
+        vTaskDelayUntil(&last_wake, display_delay);
 
         frame_stats_begin();
         emulated_frame_phase += rom_fps;

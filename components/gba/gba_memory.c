@@ -2564,9 +2564,9 @@ bool gbsp_memory_init(void)
   gbsp_memory = heap_caps_malloc(sizeof(*gbsp_memory), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!gbsp_memory)
     return false;
-  gbsp_memory->vram = gbsp_hot_malloc(GBA_VRAM_SIZE);
-  gbsp_memory->iwram = gbsp_hot_malloc(GBA_IWRAM_SIZE);
-  return gbsp_memory->vram && gbsp_memory->iwram;
+  gbsp_memory->iwram_data = gbsp_hot_malloc(GBA_IWRAM_SIZE);
+  gbsp_memory->vram_data = gbsp_hot_malloc(GBA_VRAM_SIZE);
+  return gbsp_memory->iwram_data && gbsp_memory->vram_data;
 }
 #endif
 
@@ -2623,5 +2623,3 @@ fail:
   fclose(fd);
   return -1;
 }
-
-

@@ -39,5 +39,8 @@ int ui_draw_text(int x, int y, const char *s, uint16_t color);
 /* Blit an RGB565 image (clipped to screen). */
 void ui_blit(int x, int y, int w, int h, const uint16_t *pixels);
 
+/* Blit an RGB565 image while skipping one transparent colour. */
+void ui_blit_keyed(int x, int y, int w, int h, const uint16_t *pixels, uint16_t transparent);
+
 /* Push the framebuffer to the LCD (blocking until DMA done). */
 void ui_flush(void);

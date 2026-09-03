@@ -35,10 +35,30 @@ static const char *TAG = "browser";
 #define PREVIEW_X    (LCD_W - PREVIEW_SIZE - 6)          /* 138 */
 #define PREVIEW_Y    (FOOTER_TOP - PREVIEW_SIZE - 7)     /* 118 */
 
+enum {
+    SYSTEM_COUNT = 4,
+    SYSTEM_ICON_SIZE = 48,
+    SYSTEM_ICON_KEY = 0xF81F,
+};
+
 typedef struct {
     char name[MAX_NAME];
     uint8_t is_dir;
 } entry_t;
+
+typedef struct {
+    const char *name;
+    const char *probe_rom;
+} system_entry_t;
+
+static const system_entry_t systems[SYSTEM_COUNT] = {
+    {.name = "NES", .probe_rom = "game.nes"},
+    {.name = "GAME BOY / COLOR", .probe_rom = "game.gb"},
+    {.name = "GAME BOY ADVANCE", .probe_rom = "game.gba"},
+    {.name = "SUPER NINTENDO", .probe_rom = "game.sfc"},
+};
+
+extern const uint8_t emulator_icons_start[] asm("_binary_emulator_icons_rgb565_start");
 
 /* Preview cache: decoded box art for the currently selected ROM. */
 static uint16_t *preview_px;
@@ -84,11 +104,6 @@ static int path_parent(char *path)
         *slash = '\0';
     }
     return 1;
-}
-
-static int has_rom_ext(const char *name)
-{
-    return emulator_find(name) != NULL;
 }
 
 /* Load box art for a ROM entry: <rom-name-without-extension>.bmp beside the
@@ -142,7 +157,7 @@ static int entry_is_dir(const char *path, const struct dirent *entry)
 
 /* Scan a directory: collect subdirs + supported ROM files, sorted (dirs first then
  * files, each alphabetical). Returns entry count, or -1 on error. */
-static int scan_dir(const char *path, entry_t *entries, int max)
+static int scan_dir(const char *path, entry_t *entries, int max, const emulator_t *emulator)
 {
     DIR *d = opendir(path);
     if (!d) {
@@ -156,7 +171,7 @@ static int scan_dir(const char *path, entry_t *entries, int max)
             continue;
         }
         int is_dir = entry_is_dir(path, e);
-        if (!is_dir && !has_rom_ext(e->d_name)) {
+        if (!is_dir && emulator_find(e->d_name) != emulator) {
             continue;
         }
         if (n >= max) {
@@ -195,16 +210,40 @@ static int scan_dir(const char *path, entry_t *entries, int max)
 }
 
 /* ---- drawing ---- */
-static void draw_browser(const char *path, entry_t *entries, int count, int cursor)
+static void draw_system_menu(int cursor)
+{
+    ui_clear(UI_COLOR_BLACK);
+    ui_fill_rect(0, 0, LCD_W, UI_FONT_H + 4, UI_COLOR_DARK);
+    ui_draw_text(4, 2, "SELECT EMULATOR", UI_COLOR_YELLOW);
+
+    const uint16_t *icons = (const uint16_t *)emulator_icons_start;
+    for (int i = 0; i < SYSTEM_COUNT; i++) {
+        int y = LIST_TOP + i * SYSTEM_ICON_SIZE;
+        int selected = i == cursor;
+        if (selected) {
+            ui_fill_rect(0, y, LCD_W, SYSTEM_ICON_SIZE, UI_COLOR_BLUE);
+        }
+        ui_blit_keyed(8, y, SYSTEM_ICON_SIZE, SYSTEM_ICON_SIZE,
+                      icons + i * SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE, SYSTEM_ICON_KEY);
+        ui_draw_text(68, y + 16, systems[i].name, selected ? UI_COLOR_WHITE : UI_COLOR_GREY);
+    }
+
+    int fy = FOOTER_TOP + 1;
+    ui_fill_rect(0, fy - 1, LCD_W, UI_FONT_H + 3, UI_COLOR_DARK);
+    ui_draw_text(2, fy, "UP/DOWN  A:OPEN", UI_COLOR_GREY);
+    ui_flush();
+}
+
+static void draw_browser(const system_entry_t *system, const char *path, entry_t *entries, int count, int cursor)
 {
     ui_clear(UI_COLOR_BLACK);
 
-    /* header: current path */
+    /* header: selected emulator and path relative to the SD root */
     int y = 2;
     ui_fill_rect(0, 0, LCD_W, UI_FONT_H + 4, UI_COLOR_DARK);
-    /* clip path display to available width */
     char hdr[MAX_PATH];
-    snprintf(hdr, sizeof(hdr), "%s", path);
+    const char *relative = path + strlen(ROOT_PATH);
+    snprintf(hdr, sizeof(hdr), "%s %s", system->name, *relative ? relative : "/");
     ui_draw_text(4, y, hdr, UI_COLOR_YELLOW);
 
     /* show box art while a ROM is selected */
@@ -233,6 +272,9 @@ static void draw_browser(const char *path, entry_t *entries, int count, int curs
         max_chars = (PREVIEW_X - 1 - 6) / UI_FONT_W;
     }
 
+    if (count == 0) {
+        ui_draw_text(6, LIST_TOP, "NO ROMS FOUND", UI_COLOR_GREY);
+    }
     for (int i = 0; i < LINES_VISIBLE; i++) {
         int idx = offset + i;
         if (idx >= count) {
@@ -261,7 +303,7 @@ static void draw_browser(const char *path, entry_t *entries, int count, int curs
     /* footer: controls */
     int fy = FOOTER_TOP + 1;
     ui_fill_rect(0, fy - 1, LCD_W, UI_FONT_H + 3, UI_COLOR_DARK);
-    ui_draw_text(2, fy, "NES GB GBC  A:open B:up", UI_COLOR_GREY);
+    ui_draw_text(2, fy, "A:open  B:systems", UI_COLOR_GREY);
 
     /* preview: bordered box art in the bottom-right corner */
     if (preview_ok) {
@@ -305,85 +347,129 @@ int browser_run(char *out_path, int out_path_size)
     strncpy(path, ROOT_PATH, sizeof(path));
     path[sizeof(path) - 1] = '\0';
 
+    int system_cursor = 0;
     int cursor = 0;
-    int count = scan_dir(path, ents, MAX_ENTRIES);
-    if (count < 0) {
-        free(ents);
-        return -1;
-    }
-
+    int count = 0;
+    int system_menu = 1;
+    const system_entry_t *system = NULL;
+    const emulator_t *emulator = NULL;
     int held = 0, repeat_cnt = 0;
-    draw_browser(path, ents, count, cursor);
+    draw_system_menu(system_cursor);
 
     for (;;) {
         int pressed = wait_edge(&held, &repeat_cnt);
         int redraw = 0;
 
-        if (pressed & NES_PAD_UP) {
-            if (cursor > 0) {
-                cursor--;
-            } else if (count > 0) {
-                cursor = count - 1;
+        if (system_menu) {
+            if (pressed & NES_PAD_UP) {
+                system_cursor = system_cursor > 0 ? system_cursor - 1 : SYSTEM_COUNT - 1;
+                redraw = 1;
             }
-            redraw = 1;
-        }
-
-        if (pressed & NES_PAD_DOWN) {
-            if (cursor < count - 1) {
-                cursor++;
-            } else {
-                cursor = 0;
+            if (pressed & NES_PAD_DOWN) {
+                system_cursor = system_cursor < SYSTEM_COUNT - 1 ? system_cursor + 1 : 0;
+                redraw = 1;
             }
-            redraw = 1;
-        }
-
-        if (pressed & (NES_PAD_A | NES_PAD_RIGHT)) {
-            if (cursor < count && ents[cursor].is_dir) {
-                char child[MAX_PATH];
-                path_join(child, sizeof(child), path, ents[cursor].name);
-                int n = scan_dir(child, ents, MAX_ENTRIES);
-                if (n >= 0) {
-                    strncpy(path, child, sizeof(path));
+            if (pressed & (NES_PAD_A | NES_PAD_RIGHT)) {
+                system = &systems[system_cursor];
+                emulator = emulator_find(system->probe_rom);
+                if (!emulator) {
+                    ESP_LOGE(TAG, "emulator is not registered: %s", system->name);
+                } else {
+                    strncpy(path, ROOT_PATH, sizeof(path));
                     path[sizeof(path) - 1] = '\0';
-                    count = n;
+                    count = scan_dir(path, ents, MAX_ENTRIES, emulator);
+                    if (count < 0) {
+                        count = 0;
+                    }
+                    cursor = 0;
+                    system_menu = 0;
+                    redraw = 1;
+                }
+            }
+
+            if (redraw) {
+                if (system_menu) {
+                    draw_system_menu(system_cursor);
+                } else {
+                    draw_browser(system, path, ents, count, cursor);
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(16));
+            continue;
+        }
+
+        if (pressed & NES_PAD_B) {
+            system_menu = 1;
+            redraw = 1;
+        } else {
+
+            if (pressed & NES_PAD_UP) {
+                if (cursor > 0) {
+                    cursor--;
+                } else if (count > 0) {
+                    cursor = count - 1;
+                }
+                redraw = 1;
+            }
+
+            if (pressed & NES_PAD_DOWN) {
+                if (cursor < count - 1) {
+                    cursor++;
+                } else {
+                    cursor = 0;
+                }
+                redraw = 1;
+            }
+
+            if (pressed & (NES_PAD_A | NES_PAD_RIGHT)) {
+                if (cursor < count && ents[cursor].is_dir) {
+                    char child[MAX_PATH];
+                    path_join(child, sizeof(child), path, ents[cursor].name);
+                    int n = scan_dir(child, ents, MAX_ENTRIES, emulator);
+                    if (n >= 0) {
+                        strncpy(path, child, sizeof(path));
+                        path[sizeof(path) - 1] = '\0';
+                        count = n;
+                        cursor = 0;
+                        redraw = 1;
+                    }
+                } else if (cursor < count) {
+                    path_join(out_path, out_path_size, path, ents[cursor].name);
+                    ESP_LOGI(TAG, "selected: %s", out_path);
+                    free(ents);
+                    free(preview_px);
+                    return 0;
+                }
+            }
+
+            if (pressed & (NES_PAD_LEFT | NES_PAD_SELECT)) {
+                if (path_parent(path)) {
+                    count = scan_dir(path, ents, MAX_ENTRIES, emulator);
+                    if (count < 0) {
+                        count = 0;
+                    }
                     cursor = 0;
                     redraw = 1;
                 }
-            } else if (cursor < count) {
-                /* supported ROM file selected */
-                path_join(out_path, out_path_size, path, ents[cursor].name);
-                ESP_LOGI(TAG, "selected: %s", out_path);
-                free(ents);
-                free(preview_px);
-                return 0;
             }
-        }
-
-        if (pressed & (NES_PAD_B | NES_PAD_LEFT | NES_PAD_SELECT)) {
-            if (path_parent(path)) {
-                count = scan_dir(path, ents, MAX_ENTRIES);
+            if (pressed & NES_PAD_START) {
+                count = scan_dir(path, ents, MAX_ENTRIES, emulator);
                 if (count < 0) {
                     count = 0;
                 }
-                cursor = 0;
+                if (cursor >= count) {
+                    cursor = 0;
+                }
                 redraw = 1;
             }
-            /* at root: B does nothing (per user spec) */
-        }
-        if (pressed & NES_PAD_START) {
-            /* refresh */
-            count = scan_dir(path, ents, MAX_ENTRIES);
-            if (count < 0) {
-                count = 0;
-            }
-            if (cursor >= count) {
-                cursor = 0;
-            }
-            redraw = 1;
         }
 
         if (redraw) {
-            draw_browser(path, ents, count, cursor);
+            if (system_menu) {
+                draw_system_menu(system_cursor);
+            } else {
+                draw_browser(system, path, ents, count, cursor);
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(16));

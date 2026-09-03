@@ -13,6 +13,11 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -O3
     -fomit-frame-pointer
+    # ESP-IDF disables jump tables globally for cache-off safety. These
+    # interpreters never run with flash cache disabled, so restore O(1)
+    # opcode dispatch for their large ARM/Thumb switches.
+    -fjump-tables
+    -ftree-switch-conversion
     -Wno-unused-variable
     -Wno-unused-function
     -Wno-implicit-fallthrough

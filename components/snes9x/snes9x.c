@@ -126,10 +126,13 @@ int snes_init(int audio_rate,
     if (!S9xInitDisplay()) {
         return -1;
     }
-    if (!S9xInitMemory()) {
+    /* The SPC700 touches its 64 KiB RAM on nearly every audio-CPU opcode.
+     * Reserve internal RAM for it before the larger video memories. */
+    if (!S9xInitAPU()) {
         return -1;
     }
-    if (!S9xInitAPU()) {
+    if (!S9xInitMemory()) {
+        S9xDeinitAPU();
         return -1;
     }
     if (!S9xInitSound(0, 0)) {
