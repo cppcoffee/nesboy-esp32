@@ -6,7 +6,9 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 
 #include "app_config.h"
@@ -20,12 +22,69 @@
 static const char *TAG = "emulator-snes";
 static bool rewind_previewing;
 
-/* Render at 30 fps while preserving the ROM's native 50/60 Hz timing. */
-#define SNES_DISPLAY_FPS 30
+enum {
+    SNES_FRAME_TIME_US = 1000000,
+    /* Ignore sub-millisecond scheduling jitter before dropping a frame. */
+    SNES_RENDER_LATE_US = 1000,
+    /* Recover after a debugger/save-state stall instead of skipping forever. */
+    SNES_MAX_LAG_FRAMES = 4,
+    SNES_DISPLAY_TASK_STACK = 4096,
+    SNES_DISPLAY_TASK_PRIORITY = 3, /* audio on CPU0 remains higher at 4 */
+};
+
+static struct {
+    QueueHandle_t ready;
+    QueueHandle_t free;
+    bool async;
+} video_pipe;
+
+static void display_task(void *arg)
+{
+    (void)arg;
+
+    while (1) {
+        uint16_t *pixels;
+        xQueueReceive(video_pipe.ready, &pixels, portMAX_DELAY);
+        display_blit_snes(pixels);
+        xQueueSend(video_pipe.free, &pixels, portMAX_DELAY);
+    }
+}
+
+static bool video_pipe_init(uint16_t *spare_pixels)
+{
+    video_pipe.ready = xQueueCreate(1, sizeof(uint16_t *));
+    video_pipe.free = xQueueCreate(1, sizeof(uint16_t *));
+    if (!video_pipe.ready || !video_pipe.free ||
+        xTaskCreatePinnedToCore(display_task, "snes-display", SNES_DISPLAY_TASK_STACK, NULL,
+                                SNES_DISPLAY_TASK_PRIORITY, NULL, 0) != pdPASS) {
+        if (video_pipe.ready) {
+            vQueueDelete(video_pipe.ready);
+        }
+        if (video_pipe.free) {
+            vQueueDelete(video_pipe.free);
+        }
+        video_pipe = (typeof(video_pipe)){0};
+        return false;
+    }
+
+    xQueueSend(video_pipe.free, &spare_pixels, 0);
+    video_pipe.async = true;
+    return true;
+}
 
 static void video_callback(void *buffer)
 {
-    display_blit_snes((const uint16_t *)buffer);
+    uint16_t *pixels = buffer;
+    if (!video_pipe.async) {
+        display_blit_snes(pixels);
+        return;
+    }
+
+    /* CPU0 scales/transmits this completed buffer while CPU1 renders into
+     * the other one. Back-pressure here also prevents tearing. */
+    xQueueSend(video_pipe.ready, &pixels, portMAX_DELAY);
+    xQueueReceive(video_pipe.free, &pixels, portMAX_DELAY);
+    snes_set_framebuffer(pixels);
 }
 
 static void audio_callback(const int16_t *buffer, int samples)
@@ -104,6 +163,15 @@ int emulator_snes_run(const char *rom_path)
         return -1;
     }
 
+    uint16_t *spare_pixels = heap_caps_malloc(
+        SNES_WIDTH * SNES_HEIGHT_EXTENDED * sizeof(uint16_t), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+    if (!spare_pixels || !video_pipe_init(spare_pixels)) {
+        if (spare_pixels) {
+            heap_caps_free(spare_pixels);
+        }
+        ESP_LOGW(TAG, "single-buffer synchronous display fallback");
+    }
+
     snes_set_framebuffer(pixels);
     if (snes_load_rom_file(rom_path) < 0) {
         ESP_LOGE(TAG, "snes_load_rom_file(%s) failed", rom_path);
@@ -119,7 +187,7 @@ int emulator_snes_run(const char *rom_path)
 
     const rewind_backend_t rewind_backend = {
         .state_size = snes_state_size(),
-        .refresh_rate = 30, /* display frames per second */
+        .refresh_rate = (int)rom_fps,
         .slots = SNES_REWIND_SLOTS,
         .save = rewind_save,
         .load = rewind_load,
@@ -130,9 +198,11 @@ int emulator_snes_run(const char *rom_path)
     const TickType_t frame_delay = pdMS_TO_TICKS(1000 / rewind_backend.refresh_rate);
     emulator_settings_t settings = {0};
     int previous_buttons = 0;
-    uint32_t emulated_frame_phase = 0;
-    uint32_t display_tick_phase = 0;
-    TickType_t last_wake = xTaskGetTickCount();
+    const int64_t frame_time_us = SNES_FRAME_TIME_US / rom_fps;
+    const uint32_t frame_time_remainder = SNES_FRAME_TIME_US % rom_fps;
+    uint32_t frame_time_phase = 0;
+    uint32_t idle_frame_phase = 0;
+    int64_t next_frame_us = esp_timer_get_time();
 
     while (1) {
         int buttons = buttons_read();
@@ -143,31 +213,38 @@ int emulator_snes_run(const char *rom_path)
 
         if (emulator_handle_state_controls(rom_path, &rewind_backend, buttons)) {
             vTaskDelay(frame_delay);
-            last_wake = xTaskGetTickCount();
-            display_tick_phase = 0;
+            next_frame_us = esp_timer_get_time();
+            frame_time_phase = 0;
             continue;
         }
 
-        /* The audio queue paces the long-run average; this delay keeps the
-         * blit on an even 30 Hz grid so PAL's 1-2-2 emulated-frame pattern
-         * does not surface as 20/40 ms blit jitter. */
-        TickType_t display_delay = configTICK_RATE_HZ / SNES_DISPLAY_FPS;
-        display_tick_phase += configTICK_RATE_HZ % SNES_DISPLAY_FPS;
-        if (display_tick_phase >= SNES_DISPLAY_FPS) {
-            display_tick_phase -= SNES_DISPLAY_FPS;
-            display_delay++;
+        /* Try to render every native 50/60 Hz frame. If a heavy scene falls
+         * behind real time, skip only PPU output until the audio-paced core
+         * catches up; emulation and sound always keep their native rate. */
+        int64_t now = esp_timer_get_time();
+        int64_t lag_us = now - next_frame_us;
+        if (lag_us > frame_time_us * SNES_MAX_LAG_FRAMES) {
+            next_frame_us = now;
+            frame_time_phase = 0;
+            lag_us = 0;
         }
-        vTaskDelayUntil(&last_wake, display_delay);
+        bool skip_video = lag_us > SNES_RENDER_LATE_US;
 
         frame_stats_begin();
-        emulated_frame_phase += rom_fps;
-        int frames_to_run = (int)(emulated_frame_phase / SNES_DISPLAY_FPS);
-        emulated_frame_phase %= SNES_DISPLAY_FPS;
-        for (int f = 0; f < frames_to_run; f++) {
-            snes_set_video_skip(f != frames_to_run - 1);
-            snes_run_frame();
-        }
+        snes_set_video_skip(skip_video);
+        snes_run_frame();
         snes_set_video_skip(false);
-        frame_stats_end();
+        frame_stats_end(!skip_video);
+
+        next_frame_us += frame_time_us;
+        frame_time_phase += frame_time_remainder;
+        if (frame_time_phase >= rom_fps) {
+            frame_time_phase -= rom_fps;
+            next_frame_us++;
+        }
+        if (++idle_frame_phase >= rom_fps) {
+            idle_frame_phase = 0;
+            vTaskDelay(1); /* let CPU1's idle task feed its watchdog */
+        }
     }
 }

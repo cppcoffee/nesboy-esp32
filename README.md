@@ -2,7 +2,7 @@
 
 Minimal ESP-IDF NES, Game Boy, Game Boy Color, and Super Nintendo emulator for ESP32-S3.
 
-NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. SNES targets **30 display FPS** while preserving the ROM's native 50/60 Hz emulation and audio rate. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, `.gbc`, and `.sfc`/`.smc`/`.swc`/`.fig` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo`, `gnuboy`, and trimmed `snes9x` cores from `retro-goretro-go`.
+NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. SNES renders up to the ROM's native **50/60 FPS**, with adaptive video-only frame skipping in heavy scenes so emulation and audio keep their native rate. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, `.gbc`, and `.sfc`/`.smc`/`.swc`/`.fig` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo`, `gnuboy`, and trimmed `snes9x` cores from `retro-goretro-go`.
 
 ## Playing Games from the SD Card
 
@@ -57,7 +57,7 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 
 - `.sfc`, `.smc`, `.swc`, and `.fig` use a trimmed `snes9x` interpreter core (Snes9x license, see `components/snes9x/src/LICENSE`).
 - The native 256×224 image is scaled horizontally to 240 columns with nearest-neighbor (15:16 — one source column dropped per 16) and centered vertically (8 black rows top and bottom). Mode 5/6 output is reduced to 256 columns inside the renderer, and interlaced output uses one field to fit the fixed 256×239 framebuffer safely.
-- Rendering targets 30 FPS while emulation and 32 kHz stereo audio retain the ROM's native 60 Hz (NTSC) or 50 Hz (PAL) timing.
+- Rendering attempts every native frame (60 FPS NTSC or 50 FPS PAL). SNES uses two PSRAM framebuffers so CPU1 can emulate/render while CPU0 scales and transmits the previous frame; the higher-priority audio task also runs on CPU0. If a heavy scene still misses its real-time deadline, only video output is skipped until the audio-paced core catches up, so game and audio timing remain native.
 - Special-chip games are **not** supported by this trimmed core: no SuperFX (Star Fox, Yoshi's Island), no SA-1 (Super Mario RPG), no SDD-1, no SPC7110, and no DSP-1 (Mario Kart's OK/only partly). Standard LoROM/HiROM games work.
 - Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
 - Save states and rewind work; each SNES snapshot is ~357 KB, so rewind keeps 5 slots (15 s of history). The ROM buffer is capped at 4 MB to make room, so 6 MB cartridges (Tales of Phantasia, Star Ocean, ...) cannot load.
@@ -151,9 +151,9 @@ User-configurable build macros are kept in `main/app_config.h`. FPS logging is d
 #define NES_ENABLE_FRAME_STATS 1
 ```
 
-When enabled, one summary is printed every 600 outer-loop frames for every emulator. The original Game Boy timing is about 59.73 FPS, so a healthy GB/GBC result is approximately 59.7 FPS rather than exactly 60.0; SNES targets 30.0 display FPS.
+When enabled, one summary is printed every 600 outer-loop frames for every emulator. The original Game Boy timing is about 59.73 FPS, so a healthy GB/GBC result is approximately 59.7 FPS rather than exactly 60.0; SNES emulation stays at the ROM's native 50/60 Hz while `display` reports the adaptive rendered FPS.
 
-The log reports `fps`, average and maximum `emulate` work time, and `audio_wait`. Audio-queue blocking is measured where it actually occurs and excluded from `emulate`, so the two values can be used to tell CPU/GPU work from normal audio pacing.
+The log reports emulation `fps`, rendered `display` FPS, average and maximum `emulate` work time, and `audio_wait`. Audio-queue blocking is measured where it actually occurs and excluded from `emulate`, so the values can be used to tell CPU/GPU work from normal audio pacing.
 
 The full 240×240 screen is filled each frame (NES overscan is not cropped) using 20-line DMA chunks with two alternating internal-RAM buffers. This keeps the SPI/GDMA pipeline busy while releasing about 94 KiB of scarce internal RAM for emulator hot memory.
 

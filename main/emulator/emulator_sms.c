@@ -172,6 +172,6 @@ int emulator_sms_run(const char *rom_path, bool game_gear)
 
         frame_stats_begin();
         sms_run_frame();
-        frame_stats_end();
+        frame_stats_end(true);
     }
 }

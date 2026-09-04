@@ -131,6 +131,6 @@ int emulator_nes_run(const char *rom_path)
         frame_stats_begin();
         nes_emulate(true);
         audio_write(nes->apu->buffer, nes->apu->samples_per_frame);
-        frame_stats_end();
+        frame_stats_end(true);
     }
 }

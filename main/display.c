@@ -42,6 +42,7 @@ static const char *TAG = "display";
 struct display_pipe {
     esp_lcd_panel_handle_t lcd_panel;
     SemaphoreHandle_t lcd_done;
+    SemaphoreHandle_t state_lock;
     int pending_transfers;
     uint16_t *fb[2];
 };
@@ -230,7 +231,8 @@ void display_init(void)
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_chan));
 
     disp.pipe.lcd_done = xSemaphoreCreateCounting(2, 0);
-    if (!disp.pipe.lcd_done) {
+    disp.pipe.state_lock = xSemaphoreCreateMutex();
+    if (!disp.pipe.lcd_done || !disp.pipe.state_lock) {
         abort();
     }
 
@@ -324,21 +326,25 @@ int display_get_brightness(void)
 
 void display_osd_show(int volume, int brightness)
 {
+    xSemaphoreTake(disp.pipe.state_lock, portMAX_DELAY);
     disp.osd = (struct display_osd){
         .frames = OSD_FRAMES,
         .volume = volume,
         .brightness = brightness,
     };
+    xSemaphoreGive(disp.pipe.state_lock);
 }
 
 void display_osd_text(const char *text)
 {
+    xSemaphoreTake(disp.pipe.state_lock, portMAX_DELAY);
     disp.osd = (struct display_osd){
         .frames = OSD_FRAMES,
         .volume = 0,
         .brightness = 0,
     };
     snprintf(disp.osd.text, sizeof(disp.osd.text), "%s", text ? text : "");
+    xSemaphoreGive(disp.pipe.state_lock);
 }
 
 void display_build_palette(void)
@@ -354,6 +360,9 @@ typedef void (*display_fill_row_fn)(uint16_t *dst, int screen_y, int row, void *
 
 static void blit_chunks(display_fill_row_fn fill, void *arg, bool osd)
 {
+    if (osd) {
+        xSemaphoreTake(disp.pipe.state_lock, portMAX_DELAY);
+    }
     int y = 0;
     for (int chunk = 0; chunk < LCD_DMA_CHUNKS; chunk++) {
         lcd_wait_buffer_dma();
@@ -366,6 +375,9 @@ static void blit_chunks(display_fill_row_fn fill, void *arg, bool osd)
         }
         lcd_queue_chunk_dma(y, LCD_DMA_CHUNK_LINES, buffer);
         y += LCD_DMA_CHUNK_LINES;
+    }
+    if (osd) {
+        xSemaphoreGive(disp.pipe.state_lock);
     }
 }
 

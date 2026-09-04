@@ -12,6 +12,7 @@ static const char *TAG = "frame-stats";
 
 struct frame_stats_state {
     uint64_t frames;
+    uint32_t displayed_frames;
     int64_t fps_timer;
     int64_t frame_start;
     int64_t audio_wait_start;
@@ -46,7 +47,7 @@ void frame_stats_audio_wait_end(void)
     }
 }
 
-void frame_stats_end(void)
+void frame_stats_end(bool displayed)
 {
     int64_t frame_end = esp_timer_get_time();
     int64_t frame_emulate_us = frame_end - fs.frame_start - fs.frame_audio_wait_us;
@@ -58,13 +59,17 @@ void frame_stats_end(void)
     if (frame_emulate_us > fs.emulate_max_us) {
         fs.emulate_max_us = frame_emulate_us;
     }
+    fs.displayed_frames += displayed;
 
     if ((++fs.frames % FRAME_STATS_LOG_FRAMES) == 0) {
-        ESP_LOGI(TAG, "fps=%.1f emulate=%.2fms max=%.2fms audio_wait=%.2fms",
-                 FRAME_STATS_LOG_FRAMES * 1000000.0f / (frame_end - fs.fps_timer),
+        float seconds_us = (float)(frame_end - fs.fps_timer);
+        ESP_LOGI(TAG, "fps=%.1f display=%.1f emulate=%.2fms max=%.2fms audio_wait=%.2fms",
+                 FRAME_STATS_LOG_FRAMES * 1000000.0f / seconds_us,
+                 fs.displayed_frames * 1000000.0f / seconds_us,
                  fs.emulate_us / (FRAME_STATS_LOG_FRAMES * 1000.0f), fs.emulate_max_us / 1000.0f,
                  fs.audio_wait_us / (FRAME_STATS_LOG_FRAMES * 1000.0f));
         fs.fps_timer = frame_end;
+        fs.displayed_frames = 0;
         memset(&fs.emulate_us, 0, sizeof(fs.emulate_us) * 3);
     }
 }

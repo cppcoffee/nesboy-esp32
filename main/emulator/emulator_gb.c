@@ -136,6 +136,6 @@ int emulator_gb_run(const char *rom_path)
 
         frame_stats_begin();
         gnuboy_run(true);
-        frame_stats_end();
+        frame_stats_end(true);
     }
 }
