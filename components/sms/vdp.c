@@ -4,7 +4,16 @@
  * The Z80 is driven in lockstep from sms_run_frame; the VDP consumes its
  * share of cycles per scanline and renders each line as it finishes.
  */
+#include <stdlib.h>
 #include <string.h>
+
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#else
+#define heap_caps_malloc(size, caps) malloc(size)
+#define MALLOC_CAP_INTERNAL          0
+#define MALLOC_CAP_8BIT              0
+#endif
 
 #include "sms_internal.h"
 #include "vdp.h"
@@ -43,7 +52,16 @@ struct vdp_state {
     uint16_t rgb_palette[32];
 };
 
-static struct vdp_state vd;
+static struct vdp_state *vdp_state;
+#define vd (*vdp_state)
+
+int vdp_init(void)
+{
+    if (!vdp_state) {
+        vdp_state = heap_caps_malloc(sizeof(*vdp_state), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    return vdp_state ? 0 : -1;
+}
 
 static inline int screen_width(void)
 {

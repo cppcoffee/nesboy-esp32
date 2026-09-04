@@ -40,4 +40,5 @@ struct sms_state {
     int pad;
 };
 
-extern struct sms_state sms;
+extern struct sms_state *sms_state;
+#define sms (*sms_state)

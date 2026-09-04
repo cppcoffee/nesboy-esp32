@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -14,7 +15,6 @@
 #include "app_config.h"
 #include "audio.h"
 #include "buttons.h"
-#include "display.h"
 #include "frame_stats.h"
 #include "rewind.h"
 
@@ -27,7 +27,30 @@ enum {
 
 static void video_callback(void *buffer)
 {
-    display_blit_gb(buffer);
+    gnuboy_set_framebuffer(emulator_video_present(buffer));
+}
+
+static void fill_display_row(uint16_t *dst, const uint16_t *previous, int screen_y, const void *frame)
+{
+    if (screen_y < 12 || screen_y >= 228) {
+        memset(dst, 0, LCD_W * sizeof(*dst));
+        return;
+    }
+
+    int visible_y = screen_y - 12;
+    if ((visible_y % 3) == 1 && previous) {
+        memcpy(dst, previous, LCD_W * sizeof(*dst));
+        return;
+    }
+
+    const uint16_t *src = (const uint16_t *)frame + visible_y * 2 / 3 * GB_WIDTH;
+    for (int x = 0; x < GB_WIDTH; x += 2) {
+        uint16_t a = *src++;
+        uint16_t b = *src++;
+        *dst++ = a;
+        *dst++ = a;
+        *dst++ = b;
+    }
 }
 
 static void audio_callback(void *buffer, size_t length)
@@ -104,6 +127,9 @@ int emulator_gb_run(const char *rom_path)
     if (gnuboy_load_rom_file(rom_path) < 0) {
         return -1;
     }
+
+    emulator_video_start(GB_WIDTH * GB_HEIGHT * sizeof(uint16_t), MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL,
+                         fill_display_row);
 
     gnuboy_set_palette(GB_PALETTE_DMG);
     gnuboy_reset(true);

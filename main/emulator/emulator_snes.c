@@ -3,19 +3,18 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/stat.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include "freertos/task.h"
 
 #include "app_config.h"
 #include "audio.h"
 #include "buttons.h"
-#include "display.h"
 #include "frame_stats.h"
 #include "rewind.h"
 #include "snes.h"
@@ -29,63 +28,28 @@ enum {
     SNES_RENDER_LATE_US = 1000,
     /* Recover after a debugger/save-state stall instead of skipping forever. */
     SNES_MAX_LAG_FRAMES = 4,
-    SNES_DISPLAY_TASK_STACK = 4096,
-    SNES_DISPLAY_TASK_PRIORITY = 3, /* audio on CPU0 remains higher at 4 */
 };
 
-static struct {
-    QueueHandle_t ready;
-    QueueHandle_t free;
-    bool async;
-} video_pipe;
-
-static void display_task(void *arg)
+static void fill_display_row(uint16_t *dst, const uint16_t *previous, int screen_y, const void *frame)
 {
-    (void)arg;
-
-    while (1) {
-        uint16_t *pixels;
-        xQueueReceive(video_pipe.ready, &pixels, portMAX_DELAY);
-        display_blit_snes(pixels);
-        xQueueSend(video_pipe.free, &pixels, portMAX_DELAY);
-    }
-}
-
-static bool video_pipe_init(uint16_t *spare_pixels)
-{
-    video_pipe.ready = xQueueCreate(1, sizeof(uint16_t *));
-    video_pipe.free = xQueueCreate(1, sizeof(uint16_t *));
-    if (!video_pipe.ready || !video_pipe.free ||
-        xTaskCreatePinnedToCore(display_task, "snes-display", SNES_DISPLAY_TASK_STACK, NULL,
-                                SNES_DISPLAY_TASK_PRIORITY, NULL, 0) != pdPASS) {
-        if (video_pipe.ready) {
-            vQueueDelete(video_pipe.ready);
-        }
-        if (video_pipe.free) {
-            vQueueDelete(video_pipe.free);
-        }
-        video_pipe = (typeof(video_pipe)){0};
-        return false;
+    (void)previous;
+    const int top_blank = (LCD_H - 224) / 2;
+    if (screen_y < top_blank || screen_y >= top_blank + 224) {
+        memset(dst, 0, LCD_W * sizeof(*dst));
+        return;
     }
 
-    xQueueSend(video_pipe.free, &spare_pixels, 0);
-    video_pipe.async = true;
-    return true;
+    const uint16_t *src = (const uint16_t *)frame + (size_t)(screen_y - top_blank) * SNES_WIDTH;
+    for (int group = 0; group < SNES_WIDTH / 16; group++) {
+        memcpy(dst, src, 15 * sizeof(*dst));
+        dst += 15;
+        src += 16;
+    }
 }
 
 static void video_callback(void *buffer)
 {
-    uint16_t *pixels = buffer;
-    if (!video_pipe.async) {
-        display_blit_snes(pixels);
-        return;
-    }
-
-    /* CPU0 scales/transmits this completed buffer while CPU1 renders into
-     * the other one. Back-pressure here also prevents tearing. */
-    xQueueSend(video_pipe.ready, &pixels, portMAX_DELAY);
-    xQueueReceive(video_pipe.free, &pixels, portMAX_DELAY);
-    snes_set_framebuffer(pixels);
+    snes_set_framebuffer(emulator_video_present(buffer));
 }
 
 static void audio_callback(const int16_t *buffer, int samples)
@@ -175,14 +139,8 @@ int emulator_snes_run(const char *rom_path)
         return -1;
     }
 
-    uint16_t *spare_pixels = heap_caps_malloc(
-        SNES_WIDTH * SNES_HEIGHT_EXTENDED * sizeof(uint16_t), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
-    if (!spare_pixels || !video_pipe_init(spare_pixels)) {
-        if (spare_pixels) {
-            heap_caps_free(spare_pixels);
-        }
-        ESP_LOGW(TAG, "single-buffer synchronous display fallback");
-    }
+    emulator_video_start(SNES_WIDTH * SNES_HEIGHT_EXTENDED * sizeof(uint16_t),
+                         MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM, fill_display_row);
 
     snes_set_framebuffer(pixels);
     if (snes_load_rom_file(rom_path) < 0) {

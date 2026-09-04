@@ -12,6 +12,7 @@
 #define ESP_LOGI(...)
 #define heap_caps_malloc(size, caps) malloc(size)
 #define MALLOC_CAP_SPIRAM            0
+#define MALLOC_CAP_INTERNAL          0
 #define MALLOC_CAP_8BIT              0
 #endif
 
@@ -23,12 +24,24 @@
 
 static const char *TAG = "sms";
 
-struct sms_state sms;
+struct sms_state *sms_state;
 
 #define CYCLES_PER_FRAME (262 * 228)
 
 int sms_init(sms_hw_t hw, int sample_rate, sms_video_cb_t video_cb, sms_audio_cb_t audio_cb)
 {
+    if (!sms_state) {
+        sms_state = heap_caps_malloc(sizeof(*sms_state), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!sms_state) {
+            ESP_LOGE(TAG, "no internal memory for SMS state (%u bytes)", (unsigned)sizeof(*sms_state));
+            return -1;
+        }
+    }
+    if (vdp_init() < 0) {
+        ESP_LOGE(TAG, "no internal memory for VDP state");
+        return -1;
+    }
+
     memset(&sms, 0, sizeof(sms));
     sms.hw = hw;
     sms.sample_rate = sample_rate;

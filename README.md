@@ -155,7 +155,7 @@ When enabled, one summary is printed every 600 outer-loop frames for every emula
 
 The log reports emulation `fps`, rendered `display` FPS, average and maximum `emulate` work time, and `audio_wait`. Audio-queue blocking is measured where it actually occurs and excluded from `emulate`, so the values can be used to tell CPU/GPU work from normal audio pacing.
 
-The full 240×240 screen is filled each frame (NES overscan is not cropped) using 20-line DMA chunks with two alternating internal-RAM buffers. This keeps the SPI/GDMA pipeline busy while releasing about 94 KiB of scarce internal RAM for emulator hot memory.
+The full 240×240 screen is filled each frame (NES overscan is not cropped) using 20-line DMA chunks with two alternating internal-RAM buffers. NES, GB/GBC, and SNES also use two emulator framebuffers, so CPU1 can emulate the next frame while CPU0 converts and sends the previous one. This keeps the SPI/GDMA pipeline busy while releasing about 94 KiB of scarce internal RAM for emulator hot memory.
 
 Set `NES_ENABLE_FRAME_STATS` back to `0` for normal builds. The counters, timing, and log formatting are implemented separately in `main/frame_stats.c`.
 

@@ -6,6 +6,7 @@
 #include "sms.h"
 
 /* VDP mode-4 emulation. */
+int vdp_init(void);
 void vdp_reset(void);
 uint8_t vdp_read(uint8_t port);
 void vdp_write(uint8_t port, uint8_t value);

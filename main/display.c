@@ -16,10 +16,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "gnuboy.h"
-#include "nofrendo.h"
 #include "pins.h"
-#include "snes.h"
 
 #include "app_config.h"
 #include "display.h"
@@ -58,7 +55,6 @@ struct display_osd {
 /* Top-level display state */
 static struct {
     struct display_pipe pipe;
-    uint16_t palette565[256];
     int brightness_pct;
     struct display_osd osd;
 } disp;
@@ -88,19 +84,6 @@ static void lcd_queue_chunk_dma(int y, int rows, const void *data)
 {
     ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(disp.pipe.lcd_panel, 0, y, LCD_W, y + rows, data));
     disp.pipe.pending_transfers++;
-}
-
-static void scale_gb_row(const uint16_t *src, uint16_t *dst)
-{
-    /* Exact nearest-neighbor 3:2 expansion used by x * 2 / 3:
-     * every two source pixels become [a, a, b]. */
-    for (int x = 0; x < GB_WIDTH; x += 2) {
-        uint16_t a = *src++;
-        uint16_t b = *src++;
-        *dst++ = a;
-        *dst++ = a;
-        *dst++ = b;
-    }
 }
 
 static void dim_rows(uint16_t *buffer, int top, int bottom)
@@ -347,18 +330,9 @@ void display_osd_text(const char *text)
     xSemaphoreGive(disp.pipe.state_lock);
 }
 
-void display_build_palette(void)
-{
-    uint16_t *pal = nofrendo_buildpalette(NES_PALETTE_PVM, 16);
-    memcpy(disp.palette565, pal, sizeof(disp.palette565));
-    free(pal);
-}
-
 /* Shared chunked DMA blit pipeline. `fill` writes one 240-pixel row into
  * one of two alternating buffers; `osd` draws the overlay per chunk. */
-typedef void (*display_fill_row_fn)(uint16_t *dst, int screen_y, int row, void *arg);
-
-static void blit_chunks(display_fill_row_fn fill, void *arg, bool osd)
+static void blit_chunks(display_fill_row_fn fill, const void *frame, bool osd)
 {
     if (osd) {
         xSemaphoreTake(disp.pipe.state_lock, portMAX_DELAY);
@@ -368,7 +342,8 @@ static void blit_chunks(display_fill_row_fn fill, void *arg, bool osd)
         lcd_wait_buffer_dma();
         uint16_t *buffer = disp.pipe.fb[chunk & 1];
         for (int row = 0; row < LCD_DMA_CHUNK_LINES; row++) {
-            fill(buffer + row * LCD_W, y + row, row, arg);
+            uint16_t *dst = buffer + row * LCD_W;
+            fill(dst, row > 0 ? dst - LCD_W : NULL, y + row, frame);
         }
         if (osd) {
             draw_osd(buffer, y);
@@ -381,89 +356,25 @@ static void blit_chunks(display_fill_row_fn fill, void *arg, bool osd)
     }
 }
 
-static void blit_fill_nes(uint16_t *dst, int screen_y, int row, void *arg)
+void display_blit(const void *frame, display_fill_row_fn fill_row)
 {
-    (void)row;
-    const uint8_t *src = NES_SCREEN_GETPTR((uint8 *)arg, 8, screen_y);
-    for (int x = 0; x < LCD_W; x++) {
-        dst[x] = disp.palette565[src[x]];
-    }
-}
-
-void display_blit(uint8 *bmp)
-{
-    if (!bmp) {
+    if (!frame || !fill_row) {
         return;
     }
-    blit_chunks(blit_fill_nes, bmp, true);
+    blit_chunks(fill_row, frame, true);
 }
 
-static void blit_fill_gb(uint16_t *dst, int screen_y, int row, void *arg)
+static void blit_fill_full(uint16_t *dst, const uint16_t *previous, int screen_y, const void *frame)
 {
-    const uint16_t *bmp = arg;
-    /* 160x144 centered: 12 blank rows above, 84 below. */
-    if (screen_y < 12 || screen_y >= 228) {
-        memset(dst, 0, LCD_W * sizeof(uint16_t));
-        return;
-    }
-
-    int visible_y = screen_y - 12;
-    if ((visible_y % 3) == 1 && row > 0) {
-        /* Duplicate the previous output row; skipped at chunk boundaries,
-         * where the previous row is not in this chunk's buffer. */
-        memcpy(dst, dst - LCD_W, LCD_W * sizeof(uint16_t));
-    } else {
-        const uint16_t *src = bmp + (visible_y * 2 / 3) * GB_WIDTH;
-        scale_gb_row(src, dst);
-    }
-}
-
-void display_blit_gb(const uint16_t *bmp)
-{
-    if (!bmp) {
-        return;
-    }
-    blit_chunks(blit_fill_gb, (void *)bmp, true);
-}
-
-/* Horizontal 256 -> 240 nearest-neighbor mapping: copy 15 pixels and drop
- * every 16th source pixel. */
-static void blit_fill_snes(uint16_t *dst, int screen_y, int row, void *arg)
-{
-    (void)row;
-    const uint16_t *bmp = arg;
-    const int top_blank = (LCD_H - 224) / 2; /* 8 black rows top and bottom */
-    if (screen_y < top_blank || screen_y >= top_blank + 224) {
-        memset(dst, 0, LCD_W * sizeof(uint16_t));
-    } else {
-        const uint16_t *src = bmp + (size_t)(screen_y - top_blank) * SNES_WIDTH;
-        for (int group = 0; group < SNES_WIDTH / 16; group++) {
-            memcpy(dst, src, 15 * sizeof(*dst));
-            dst += 15;
-            src += 16;
-        }
-    }
-}
-
-void display_blit_snes(const uint16_t *bmp)
-{
-    if (!bmp) {
-        return;
-    }
-    blit_chunks(blit_fill_snes, (void *)bmp, true);
-}
-
-static void blit_fill_full(uint16_t *dst, int screen_y, int row, void *arg)
-{
-    (void)row;
-    memcpy(dst, (const uint16_t *)arg + (size_t)screen_y * LCD_W, LCD_W * sizeof(uint16_t));
+    (void)previous;
+    memcpy(dst, (const uint16_t *)frame + (size_t)screen_y * LCD_W, LCD_W * sizeof(uint16_t));
 }
 
 void display_draw_fullscreen(const uint16_t *fb)
 {
     /* Full-screen blit for menus. Reuse the DMA pipeline to copy the source
      * (which may live in PSRAM) through the two internal DMA buffers. */
-    blit_chunks(blit_fill_full, (void *)fb, false);
+    blit_chunks(blit_fill_full, fb, false);
     /* Drain the last chunk */
     while (disp.pipe.pending_transfers > 0) {
         xSemaphoreTake(disp.pipe.lcd_done, portMAX_DELAY);
