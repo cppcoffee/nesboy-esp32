@@ -182,10 +182,12 @@ void snes_run_frame(void)
 {
     IPPU.RenderThisFrame = !snes_skip_video;
     S9xMainLoop();
-    snes_audio_flush();
     if (frame_video_cb && !snes_skip_video && GFX.Screen) {
         frame_video_cb(GFX.Screen);
     }
+    /* Retro-Go submits video before mixing audio. The LCD transfer is DMA
+     * backed, so its final queued chunks can run while samples are mixed. */
+    snes_audio_flush();
 }
 
 void snes_reset(void)

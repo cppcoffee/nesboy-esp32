@@ -36,7 +36,7 @@ static const char *TAG = "browser";
 #define PREVIEW_Y    (FOOTER_TOP - PREVIEW_SIZE - 7)     /* 118 */
 
 enum {
-    SYSTEM_COUNT = 4,
+    SYSTEM_COUNT = 3,
     SYSTEM_ICON_SIZE = 48,
     SYSTEM_ICON_KEY = 0xF81F,
 };
@@ -49,13 +49,13 @@ typedef struct {
 typedef struct {
     const char *name;
     const char *probe_rom;
+    uint8_t icon;
 } system_entry_t;
 
 static const system_entry_t systems[SYSTEM_COUNT] = {
-    {.name = "NES", .probe_rom = "game.nes"},
-    {.name = "GAME BOY / COLOR", .probe_rom = "game.gb"},
-    {.name = "GAME BOY ADVANCE", .probe_rom = "game.gba"},
-    {.name = "SUPER NINTENDO", .probe_rom = "game.sfc"},
+    {.name = "NES", .probe_rom = "game.nes", .icon = 0},
+    {.name = "GAME BOY / COLOR", .probe_rom = "game.gb", .icon = 1},
+    {.name = "SUPER NINTENDO", .probe_rom = "game.sfc", .icon = 3},
 };
 
 extern const uint8_t emulator_icons_start[] asm("_binary_emulator_icons_rgb565_start");
@@ -224,7 +224,7 @@ static void draw_system_menu(int cursor)
             ui_fill_rect(0, y, LCD_W, SYSTEM_ICON_SIZE, UI_COLOR_BLUE);
         }
         ui_blit_keyed(8, y, SYSTEM_ICON_SIZE, SYSTEM_ICON_SIZE,
-                      icons + i * SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE, SYSTEM_ICON_KEY);
+                      icons + systems[i].icon * SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE, SYSTEM_ICON_KEY);
         ui_draw_text(68, y + 16, systems[i].name, selected ? UI_COLOR_WHITE : UI_COLOR_GREY);
     }
 

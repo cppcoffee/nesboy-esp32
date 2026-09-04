@@ -31,7 +31,7 @@ static void video_callback(void *buffer)
 static void audio_callback(const int16_t *buffer, int samples)
 {
     if (!rewind_previewing) {
-        audio_write_stereo_resampled(buffer, samples, SNES_AUDIO_RATE_DEFAULT);
+        audio_write_stereo(buffer, samples);
     }
 }
 

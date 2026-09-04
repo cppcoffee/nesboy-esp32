@@ -99,7 +99,7 @@ void S9xFixColourBrightness()
 /* S9xSetPPU()                                                                */
 /* This function sets a PPU Register to a specific byte                       */
 /******************************************************************************/
-void S9xSetPPU(uint8_t Byte, uint16_t Address)
+SNES_HOT void S9xSetPPU(uint8_t Byte, uint16_t Address)
 {
    if (Address <= 0x2183)
    {
@@ -617,7 +617,7 @@ void S9xSetPPU(uint8_t Byte, uint16_t Address)
 /* S9xGetPPU()                                                                */
 /* This function retrieves a PPU Register                                     */
 /******************************************************************************/
-uint8_t S9xGetPPU(uint16_t Address)
+SNES_HOT uint8_t S9xGetPPU(uint16_t Address)
 {
    uint8_t byte;
    if (Address < 0x2100) /* not a real PPU reg */

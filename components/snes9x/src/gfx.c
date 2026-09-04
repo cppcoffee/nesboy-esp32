@@ -1544,7 +1544,7 @@ static void DrawBackgroundMode5(uint32_t bg, uint8_t Z1, uint8_t Z2)
    GFX.PPL = IPPU.DoubleHeightPixels ? GFX.PPLx2 : (GFX.PPLx2 >> 1);
 }
 
-static void DrawBackground(uint32_t BGMode, uint32_t bg, uint8_t Z1, uint8_t Z2)
+static SNES_HOT void DrawBackground(uint32_t BGMode, uint32_t bg, uint8_t Z1, uint8_t Z2)
 {
    uint32_t Tile;
    uint16_t* SC0;
@@ -2431,7 +2431,7 @@ static void DrawBGMode7Background16Sub1_2_i(uint8_t* Screen, int32_t bg)
    RENDER_BACKGROUND_MODE7_i(uint16_t, *(d + GFX.DepthDelta) ? (*(d + GFX.DepthDelta) != 1 ? COLOR_SUB1_2(theColor, p[GFX.Delta]) : COLOR_SUB(theColor, GFX.FixedColour)) : theColor, (ScreenColors[b & GFX.Mode7Mask]));
 }
 
-static void RenderScreen(uint8_t* Screen, bool sub, bool force_no_add, uint8_t D)
+static SNES_HOT void RenderScreen(uint8_t* Screen, bool sub, bool force_no_add, uint8_t D)
 {
    bool BG0;
    bool BG1;
@@ -2565,7 +2565,7 @@ static void RenderScreen(uint8_t* Screen, bool sub, bool force_no_add, uint8_t D
    }
 }
 
-void S9xUpdateScreen(void)
+SNES_HOT void S9xUpdateScreen(void)
 {
    int32_t x2 = 1;
    uint32_t starty, endy, black;

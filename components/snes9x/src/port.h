@@ -79,6 +79,10 @@
  * back to PSRAM when internal RAM runs out. */
 #include "esp_heap_caps.h"
 
+/* GBA removal leaves enough executable SRAM for the SNES interpreter and
+ * renderer paths that otherwise churn the ESP32-S3's 16 KiB I-cache. */
+#define SNES_HOT __attribute__((noinline, section(".iram1")))
+
 static INLINE void *snes_malloc(size_t size)
 {
    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

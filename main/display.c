@@ -414,29 +414,6 @@ void display_blit_gb(const uint16_t *bmp)
     blit_chunks(blit_fill_gb, (void *)bmp, true);
 }
 
-static void blit_fill_gba(uint16_t *dst, int screen_y, int row, void *arg)
-{
-    (void)row;
-    const uint16_t *bmp = arg;
-    /* 240x160 image, 240x240 screen: 40 black rows on top and bottom. The
-     * image is exactly the width of the screen, so each visible line is a
-     * plain row copy. */
-    const int top_blank = (LCD_H - 160) / 2;
-    if (screen_y < top_blank || screen_y >= top_blank + 160) {
-        memset(dst, 0, LCD_W * sizeof(uint16_t));
-    } else {
-        memcpy(dst, bmp + (size_t)(screen_y - top_blank) * 240, LCD_W * sizeof(uint16_t));
-    }
-}
-
-void display_blit_gba(const uint16_t *bmp)
-{
-    if (!bmp) {
-        return;
-    }
-    blit_chunks(blit_fill_gba, (void *)bmp, true);
-}
-
 /* Horizontal 256 -> 240 nearest-neighbor mapping: copy 15 pixels and drop
  * every 16th source pixel. */
 static void blit_fill_snes(uint16_t *dst, int screen_y, int row, void *arg)

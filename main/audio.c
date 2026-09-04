@@ -35,10 +35,6 @@ struct audio_state {
     QueueHandle_t ready_queue;
     audio_frame_t frames[2];
     int volume_pct;
-    int resample_src_rate;
-    uint64_t resample_phase;
-    int16_t resample_prev[2];
-    bool resample_have_prev;
 };
 
 static struct audio_state au;
@@ -137,9 +133,6 @@ void audio_flush(void)
     while (xQueueReceive(au.ready_queue, &frame, 0) == pdTRUE) {
         xQueueSend(au.free_queue, &frame, 0);
     }
-    au.resample_have_prev = false;
-    au.resample_phase = 0;
-    au.resample_src_rate = 0;
 }
 
 static audio_frame_t *audio_acquire_frame(void)
@@ -197,76 +190,4 @@ void audio_write(const int16_t *buf, int samples)
 void audio_write_stereo(const int16_t *buf, int samples)
 {
     audio_write_frame(buf, samples, true);
-}
-
-void audio_write_stereo_resampled(const int16_t *buf, int samples, int src_rate)
-{
-    if (samples <= 0 || src_rate <= 0) {
-        ESP_LOGE(TAG, "invalid resampler input: %d samples at %d Hz", samples, src_rate);
-        return;
-    }
-    if (src_rate == AUDIO_RATE) {
-        audio_write_frame(buf, samples, true);
-        return;
-    }
-
-    if (au.resample_src_rate != src_rate) {
-        au.resample_src_rate = src_rate;
-        au.resample_phase = 0;
-        au.resample_have_prev = false;
-    }
-
-    /* Walk every input interval, including the interval spanning two calls.
-     * resample_phase is the Q32 distance from the previous input sample to
-     * the next output sample. */
-    const uint64_t one = UINT64_C(1) << 32;
-    const uint64_t step = ((uint64_t)(uint32_t)src_rate << 32) / AUDIO_RATE;
-    audio_frame_t *frame = audio_acquire_frame();
-
-    int volume_q8 = (au.volume_pct * 256 + 50) / 100;
-    int produced = 0;
-    bool overflow = false;
-
-    for (int i = 0; i < samples; i++) {
-        int16_t current_left = buf[i * 2];
-        int16_t current_right = buf[i * 2 + 1];
-        if (!au.resample_have_prev) {
-            au.resample_prev[0] = current_left;
-            au.resample_prev[1] = current_right;
-            au.resample_have_prev = true;
-            continue;
-        }
-
-        while (au.resample_phase < one) {
-            if (produced < AUDIO_MAX_SAMPLES_PER_FRAME) {
-                /* Q15 keeps the interpolation multiply in the ESP32-S3's
-                 * fast 32-bit path; the worst-case product still fits. */
-                int32_t frac = (int32_t)(au.resample_phase >> 17);
-                int left = au.resample_prev[0] +
-                           (((int32_t)current_left - au.resample_prev[0]) * frac >> 15);
-                int right = au.resample_prev[1] +
-                            (((int32_t)current_right - au.resample_prev[1]) * frac >> 15);
-                frame->data[produced * 2] = (int16_t)((left * volume_q8) >> 8);
-                frame->data[produced * 2 + 1] = (int16_t)((right * volume_q8) >> 8);
-                produced++;
-            } else {
-                overflow = true;
-            }
-            au.resample_phase += step;
-        }
-        au.resample_phase -= one;
-        au.resample_prev[0] = current_left;
-        au.resample_prev[1] = current_right;
-    }
-
-    if (overflow) {
-        ESP_LOGE(TAG, "resampled frame exceeded %d samples", AUDIO_MAX_SAMPLES_PER_FRAME);
-    }
-
-    if (produced > 0) {
-        frame->samples = produced;
-        xQueueSend(au.ready_queue, &frame, portMAX_DELAY);
-    } else {
-        xQueueSend(au.free_queue, &frame, portMAX_DELAY);
-    }
 }

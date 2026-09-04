@@ -2,20 +2,18 @@
 
 /* User-configurable build options. */
 #define NES_ENABLE_FRAME_STATS 0
-#define AUDIO_RATE             48000
+#define AUDIO_RATE             32000
 #define AUDIO_VOLUME_PERCENT   15
 #define LCD_ROTATE_180         1
 
 /* Rewind ring buffer depth. Each slot is one full in-memory state snapshot
  * (roughly 7 KB for a mapper-0 NES game, 28-180 KB for GB/GBC depending on
- * cartridge RAM, 416 KB for GBA and 357 KB for SNES); one slot is captured
+ * cartridge RAM and 357 KB for SNES); one slot is captured
  * every 3 seconds, so history length = slots * 3 s (5 slots = 15 s). Slots
  * are allocated in PSRAM and fall back to internal RAM if needed. The SNES
- * ROM buffer and the GBA ROM cache are both capped at 4 MB so the full 5
- * slots always fit; larger ROMs stream 32 KB pages from the SD card
- * (read-only). If PSRAM still runs short, rewind shortens its history
+ * ROM buffer is capped at 4 MB so the full 5 slots always fit; larger SNES
+ * ROMs cannot load. If PSRAM still runs short, rewind shortens its history
  * rather than disabling itself. */
 #define NES_REWIND_SLOTS       5
 #define GB_REWIND_SLOTS        5
-#define GBA_REWIND_SLOTS       5
 #define SNES_REWIND_SLOTS      5
