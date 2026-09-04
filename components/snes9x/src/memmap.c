@@ -135,7 +135,7 @@ static void Sanitize(char* str, size_t bufsize)
 /* S9xInitMemory()                                                                                     */
 /* This function allocates and zeroes all the memory needed by the emulator                   */
 /**********************************************************************************************/
-bool S9xInitMemory(void)
+bool S9xInitMemory(size_t rom_file_size)
 {
    /* Hot CPU/PPU memory: internal RAM first, PSRAM fallback keeps the
     * core working when internal RAM is exhausted (e.g. after GB/NES). */
@@ -154,15 +154,20 @@ bool S9xInitMemory(void)
 
    bytes0x2000 = (uint8_t *)snes_malloc(0x2000);
 
-   // Try to find the biggest (commercial) ROM size that can fit in our available memory.
-   // const size_t AllocSizes[] = {0x600000, 0x400000, 0x300000, 0x280000, 0x200000, 0x100000, 0x80000, 0};
-   /* 4 MB start: leaves PSRAM room for 5 rewind slots (~1.8 MB). 6 MB
-    * cartridges (Tales of Phantasia, Star Ocean, ...) cannot load. */
-   const size_t AllocSizes[] = {0x400000, 0x200000, 0x80000, 0};
-   for (const size_t *size = AllocSizes; *size && !Memory.ROM; ++size)
+   /* Allocate the smallest bucket that fits this ROM. The extra 512 bytes
+    * admit copier headers and 64 KiB leaves room for legacy ROM patches. */
+   size_t content_size = rom_file_size;
+   if ((content_size & 0x7ff) == 512)
+      content_size -= 512;
+   const size_t AllocSizes[] = {0x80000, 0x200000, 0x400000, 0x600000, 0};
+   for (const size_t *size = AllocSizes; *size; ++size)
    {
-      Memory.ROM_AllocSize = *size + 0x10000 + 0x200; // Extra 64KB for mapping purposes
-      Memory.ROM = (uint8_t *)snes_malloc(Memory.ROM_AllocSize);
+      if (content_size <= *size)
+      {
+         Memory.ROM_AllocSize = *size + 0x200;
+         Memory.ROM = (uint8_t *)snes_malloc(Memory.ROM_AllocSize + 0x10000);
+         break;
+      }
    }
 
    if (!Memory.RAM || !Memory.SRAM || !Memory.VRAM || !Memory.ROM || !Memory.Map || !Memory.MapInfo
@@ -241,7 +246,18 @@ bool LoadROM(const char* filename)
       fseek(fp, 0, SEEK_END);
       TotalFileSize = ftell(fp);
       fseek(fp, 0, SEEK_SET);
-      fread(Memory.ROM, Memory.ROM_AllocSize, 1, fp);
+      if (TotalFileSize > Memory.ROM_AllocSize)
+      {
+         printf("WARNING: ROM TOO BIG (%u)!\n", (unsigned)TotalFileSize);
+         fclose(fp);
+         return false;
+      }
+      if (fread(Memory.ROM, 1, TotalFileSize, fp) != TotalFileSize)
+      {
+         printf("Failed to read %s\n", filename);
+         fclose(fp);
+         return false;
+      }
       fclose(fp);
    }
    else
@@ -250,13 +266,7 @@ bool LoadROM(const char* filename)
       return false;
    }
 
-   if (TotalFileSize > Memory.ROM_AllocSize)
-   {
-      printf("WARNING: ROM TOO BIG (%u)!\n", (unsigned)TotalFileSize);
-      TotalFileSize = Memory.ROM_AllocSize;
-      return false; // comment to try to run it anyway
-   }
-   else if (TotalFileSize < 1024)
+   if (TotalFileSize < 1024)
    {
       return false; /* it ends here */
    }

@@ -8,8 +8,9 @@
 #include "src/snes9x.h" /* SNES_WIDTH, SNES_HEIGHT_EXTENDED, SNES_*_MASK */
 
 #define SNES_AUDIO_RATE_DEFAULT 32000
+#define SNES_ROM_MAX_FILE_SIZE  (6u * 1024u * 1024u + 512u)
 
-int snes_init(int audio_rate,
+int snes_init(int audio_rate, size_t rom_file_size,
               void (*video_cb)(void *pixels),
               void (*audio_cb)(const int16_t *samples, int frames));
 

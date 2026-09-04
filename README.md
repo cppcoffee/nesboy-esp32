@@ -11,7 +11,7 @@ The ROM used at runtime is chosen from the SD card at boot. Changing games is no
 ### Setup
 
 1. **Format the SD card as FAT32** (most cards come pre-formatted; a 32 GB card works fine). The ESP-IDF FATFS in this build does *not* support exFAT, so exFAT-formatted cards must be reformatted to FAT32 first.
-2. **Copy `.nes`, `.gb`, `.gbc`, or `.sfc`/`.smc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed; SNES ROMs up to 4 MB are loaded into PSRAM. Other files are hidden from the browser.
+2. **Copy `.nes`, `.gb`, `.gbc`, or `.sfc`/`.smc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed; SNES ROMs up to 6 MB are loaded into PSRAM. Other files are hidden from the browser.
 3. Insert the card and power on the board.
 
 ### Using the browser
@@ -58,9 +58,9 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - `.sfc`, `.smc`, `.swc`, and `.fig` use a trimmed `snes9x` interpreter core (Snes9x license, see `components/snes9x/src/LICENSE`).
 - The native 256×224 image is scaled horizontally to 240 columns with nearest-neighbor (15:16 — one source column dropped per 16) and centered vertically (8 black rows top and bottom). Mode 5/6 output is reduced to 256 columns inside the renderer, and interlaced output uses one field to fit the fixed 256×239 framebuffer safely.
 - Rendering attempts every native frame (60 FPS NTSC or 50 FPS PAL). SNES uses two PSRAM framebuffers so CPU1 can emulate/render while CPU0 scales and transmits the previous frame; the higher-priority audio task also runs on CPU0. If a heavy scene still misses its real-time deadline, only video output is skipped until the audio-paced core catches up, so game and audio timing remain native.
-- Special-chip games are **not** supported by this trimmed core: no SuperFX (Star Fox, Yoshi's Island), no SA-1 (Super Mario RPG), no SDD-1, no SPC7110, and no DSP-1 (Mario Kart's OK/only partly). Standard LoROM/HiROM games work.
+- Special-chip support is limited in this trimmed core: SuperFX (Star Fox, Yoshi's Island), SA-1 (Super Mario RPG), S-DD1 (Star Ocean), and SPC7110 games cannot run correctly. DSP-1/2/3/4, C4, OBC1, and S-RTC support is compiled in. Standard LoROM/HiROM games work.
 - Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
-- Save states and rewind work; each SNES snapshot is ~357 KB, so rewind keeps 5 slots (15 s of history). The ROM buffer is capped at 4 MB to make room, so 6 MB cartridges (Tales of Phantasia, Star Ocean, ...) cannot load.
+- Save states and rewind work; each SNES snapshot is ~357 KB. The ROM buffer is sized to the selected cartridge up to 6 MB, so smaller games retain 5 rewind slots (15 s of history), while a 6 MB game normally has room for one slot (3 s).
 
 ## Flashing / Rebuilding
 
@@ -98,7 +98,7 @@ For NES, GB, GBC, and SNES games, a dedicated **Rewind** button (GPIO 8, active-
 
 While the button is held, normal gameplay and audio output are paused. Each rewind step restores an older snapshot, previews a frame, and restores the snapshot again so gameplay continues from the selected point when the button is released.
 
-Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; SNES snapshots are ~357 KB. To bound the PSRAM budget, the ring depth is 5 slots for every core (15 s of history), and the SNES ROM buffer is capped at 4 MB. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation; if PSRAM ever runs short, as many slots are allocated as fit and the history shortens instead of rewind disabling itself — only a total allocation failure turns rewind off. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
+Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; SNES snapshots are ~357 KB. The SNES ROM buffer is allocated from the smallest 512 KB/2 MB/4 MB/6 MB bucket that fits the selected cartridge. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation; if PSRAM runs short, as many slots as fit are allocated and the history shortens instead of rewind disabling itself — a 6 MB SNES game normally keeps one 3-second slot. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
 
 ### Memory lifecycle
 

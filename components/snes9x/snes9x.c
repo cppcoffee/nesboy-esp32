@@ -103,7 +103,7 @@ static void snes_audio_flush(void)
     frame_audio_cb(audio_buffer, wanted >> 1);
 }
 
-int snes_init(int audio_rate,
+int snes_init(int audio_rate, size_t rom_file_size,
               void (*video_cb)(void *pixels),
               void (*audio_cb)(const int16_t *samples, int frames))
 {
@@ -131,7 +131,7 @@ int snes_init(int audio_rate,
     if (!S9xInitAPU()) {
         return -1;
     }
-    if (!S9xInitMemory()) {
+    if (!S9xInitMemory(rom_file_size)) {
         S9xDeinitAPU();
         return -1;
     }

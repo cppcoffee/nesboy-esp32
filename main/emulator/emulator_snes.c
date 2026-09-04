@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/stat.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -148,6 +149,17 @@ static void rewind_preview(void)
 
 int emulator_snes_run(const char *rom_path)
 {
+    struct stat rom_info;
+    if (stat(rom_path, &rom_info) < 0) {
+        ESP_LOGE(TAG, "stat(%s) failed", rom_path);
+        return -1;
+    }
+    if (rom_info.st_size < 1024 || (uint64_t)rom_info.st_size > SNES_ROM_MAX_FILE_SIZE) {
+        ESP_LOGE(TAG, "unsupported ROM size: %lld bytes (max %u)", (long long)rom_info.st_size,
+                 SNES_ROM_MAX_FILE_SIZE);
+        return -1;
+    }
+
     /* 256x239 (extended height) RGB565 frame buffer. It does not fit in
      * internal RAM next to the rest of the system, so it lives in PSRAM;
      * the blit is a per-row copy loop, which PSRAM handles fine. */
@@ -158,7 +170,7 @@ int emulator_snes_run(const char *rom_path)
         return -1;
     }
 
-    if (snes_init(SNES_AUDIO_RATE_DEFAULT, video_callback, audio_callback) < 0) {
+    if (snes_init(SNES_AUDIO_RATE_DEFAULT, (size_t)rom_info.st_size, video_callback, audio_callback) < 0) {
         ESP_LOGE(TAG, "snes_init failed");
         return -1;
     }

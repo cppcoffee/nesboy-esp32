@@ -35,7 +35,7 @@
 
 bool LoadROM(const char*);
 void InitROM(bool);
-bool S9xInitMemory(void);
+bool S9xInitMemory(size_t rom_file_size);
 void S9xDeinitMemory(void);
 void FreeSDD1Data(void);
 
@@ -130,7 +130,7 @@ typedef struct
    // char     ROMFilename [_MAX_PATH];
    uint8_t  ROMRegion;
    uint8_t  ExtendedFormat;
-   size_t   ROM_AllocSize; // size of *ROM content
+   size_t   ROM_AllocSize; // maximum ROM file bytes, including copier header
    size_t   ROM_Offset;
 } CMemory;
 

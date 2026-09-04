@@ -11,9 +11,9 @@
  * cartridge RAM and 357 KB for SNES); one slot is captured
  * every 3 seconds, so history length = slots * 3 s (5 slots = 15 s). Slots
  * are allocated in PSRAM and fall back to internal RAM if needed. The SNES
- * ROM buffer is capped at 4 MB so the full 5 slots always fit; larger SNES
- * ROMs cannot load. If PSRAM still runs short, rewind shortens its history
- * rather than disabling itself. */
+ * ROM buffer is sized to the selected cartridge up to 6 MB. Large SNES ROMs
+ * can leave room for fewer rewind slots; rewind shortens its history rather
+ * than disabling itself. */
 #define NES_REWIND_SLOTS       5
 #define GB_REWIND_SLOTS        5
 #define SNES_REWIND_SLOTS      5
