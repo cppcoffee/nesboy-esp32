@@ -37,8 +37,10 @@
 //   GPIO33..37      - octal-PSRAM D4..D7/DQS on N16R8, reserved by PSRAM.
 //   GPIO38 (Select) - FSPIWP/SUBSPIWP mux, plain GPIO by default, fine for buttons.
 //   GPIO39 (Start)  - MTCK (JTAG TMS) mux, plain GPIO by default, fine for buttons.
-//   GPIO45 (Right)  - strapping pin (VDD_SPI select). Pull-up reads HIGH at
-//                     boot = safe. Do NOT hold Right during power-on.
+//   GPIO45 (Right)  - strapping pin (VDD_SPI voltage: 0=3.3V, 1=1.8V, weak
+//                     pull-down at reset). The active-low button can only pull
+//                     it LOW (= 3.3V flash, the safe state), so holding Right
+//                     during power-on is harmless.
 //   GPIO19 (Left)   - USB D-. If COM3 is the native USB port, using this pin
 //                     breaks post-boot serial monitor (reflash still works).
 #define BTN_LEFT_PIN   (19)

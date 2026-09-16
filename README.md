@@ -189,7 +189,7 @@ The current wiring is defined in `main/pins.h`:
 The HT517 `EN` pin is tied to 3.3 V. All buttons are active-low, use the ESP32-S3 internal pull-ups, and connect to GND when pressed.
 
 > [!IMPORTANT]
-> Octal PSRAM is enabled and reserves GPIO33–37 (D4–D7/DQS) plus the MSPI shared bus (GPIO26–32). Start/Select use GPIO38/39 — GPIO38 is an FSPIWP mux (plain GPIO by default), GPIO39 is MTCK/JTAG TMS (plain GPIO by default). GPIO45 is a strapping pin, so do not hold Right during power-on. GPIO19 is USB D− and may interfere with the native USB connection after button initialization.
+> Octal PSRAM is enabled and reserves GPIO33–37 (D4–D7/DQS) plus the MSPI shared bus (GPIO26–32). Start/Select use GPIO38/39 — GPIO38 is an FSPIWP mux (plain GPIO by default), GPIO39 is MTCK/JTAG TMS (plain GPIO by default). GPIO45 (Right) is a strapping pin (flash voltage select): the active-low button can only pull it low, which selects the 3.3 V flash rail, so holding Right during power-on is safe. GPIO19 is USB D− and may interfere with the native USB connection after button initialization.
 
 LCD frame data uses the ESP-IDF `esp_lcd` SPI/GDMA path at 80 MHz. Audio uses the native I2S DMA driver at 32 kHz. The SD card is driven in SPI mode on `SPI3_HOST` (separate from the LCD's `SPI2_HOST`) at up to 40 MHz. The app runs at 240 MHz; WiFi and Bluetooth are disabled in `sdkconfig.defaults`.
 
