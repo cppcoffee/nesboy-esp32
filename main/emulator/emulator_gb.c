@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -16,7 +15,6 @@
 #include "app_config.h"
 #include "audio.h"
 #include "buttons.h"
-#include "display.h"
 #include "frame_stats.h"
 #include "rewind.h"
 
@@ -25,12 +23,34 @@ static bool rewind_previewing;
 
 enum {
     GB_AUDIO_MAX_SAMPLES = AUDIO_RATE / 50 + 2,
-    GB_SRAM_SAVE_FRAMES = 5 * 60,
 };
 
 static void video_callback(void *buffer)
 {
-    display_blit_gb(buffer);
+    gnuboy_set_framebuffer(emulator_video_present(buffer));
+}
+
+static void fill_display_row(uint16_t *dst, const uint16_t *previous, int screen_y, const void *frame)
+{
+    if (screen_y < 12 || screen_y >= 228) {
+        memset(dst, 0, LCD_W * sizeof(*dst));
+        return;
+    }
+
+    int visible_y = screen_y - 12;
+    if ((visible_y % 3) == 1 && previous) {
+        memcpy(dst, previous, LCD_W * sizeof(*dst));
+        return;
+    }
+
+    const uint16_t *src = (const uint16_t *)frame + visible_y * 2 / 3 * GB_WIDTH;
+    for (int x = 0; x < GB_WIDTH; x += 2) {
+        uint16_t a = *src++;
+        uint16_t b = *src++;
+        *dst++ = a;
+        *dst++ = a;
+        *dst++ = b;
+    }
 }
 
 static void audio_callback(void *buffer, size_t length)
@@ -87,17 +107,6 @@ static void rewind_preview(void)
     rewind_previewing = false;
 }
 
-static void make_save_path(const char *rom_path, char *save_path, size_t size)
-{
-    snprintf(save_path, size, "%s", rom_path);
-    char *slash = strrchr(save_path, '/');
-    char *extension = strrchr(save_path, '.');
-    if (!extension || (slash && extension < slash)) {
-        extension = save_path + strlen(save_path);
-    }
-    snprintf(extension, size - (size_t)(extension - save_path), ".sav");
-}
-
 int emulator_gb_run(const char *rom_path)
 {
     uint16_t *pixels = heap_caps_malloc(GB_WIDTH * GB_HEIGHT * sizeof(uint16_t), MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
@@ -119,16 +128,16 @@ int emulator_gb_run(const char *rom_path)
         return -1;
     }
 
+    emulator_video_start(GB_WIDTH * GB_HEIGHT * sizeof(uint16_t), MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL,
+                         fill_display_row);
+
     gnuboy_set_palette(GB_PALETTE_DMG);
     gnuboy_reset(true);
-
-    char save_path[192];
-    make_save_path(rom_path, save_path, sizeof(save_path));
-    gnuboy_load_sram(save_path);
 
     const rewind_backend_t rewind_backend = {
         .state_size = gnuboy_state_size(),
         .refresh_rate = 60,
+        .slots = GB_REWIND_SLOTS,
         .save = rewind_save,
         .load = rewind_load,
         .preview = rewind_preview,
@@ -138,7 +147,6 @@ int emulator_gb_run(const char *rom_path)
     const TickType_t frame_delay = pdMS_TO_TICKS(1000 / rewind_backend.refresh_rate);
     emulator_settings_t settings = {0};
     int previous_buttons = 0;
-    int save_timer = 0;
 
     while (1) {
         int buttons = buttons_read();
@@ -154,14 +162,6 @@ int emulator_gb_run(const char *rom_path)
 
         frame_stats_begin();
         gnuboy_run(true);
-        frame_stats_emulation_done();
-        frame_stats_end();
-
-        if (++save_timer >= GB_SRAM_SAVE_FRAMES) {
-            save_timer = 0;
-            if (gnuboy_sram_dirty() && gnuboy_save_sram(save_path, true) < 0) {
-                ESP_LOGE(TAG, "failed to save SRAM: %s", save_path);
-            }
-        }
+        frame_stats_end(true);
     }
 }

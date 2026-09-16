@@ -22,7 +22,7 @@ bool sdcard_mount(char *err_out, size_t err_out_len)
 {
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SPI3_HOST;
-    host.max_freq_khz = SDMMC_FREQ_DEFAULT; /* 20 MHz; safer than 40 MHz for SPI-mode breakouts */
+    host.max_freq_khz = 10 * 1000; /* 10 MHz avoids CRC failures during sustained multi-MB reads */
     s_host = host;
 
     spi_bus_config_t bus_cfg = {

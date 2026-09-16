@@ -51,7 +51,6 @@ static void rtc_write(byte b)
 		cart.rtc.d = ((cart.rtc.d & 0xff) | ((b&1)<<9)) % 365;
 		break;
 	}
-	cart.rtc.dirty = 1;
 }
 
 
@@ -80,8 +79,6 @@ static void rtc_tick()
 			cart.rtc.s = 0;
 		}
 		cart.rtc.ticks = 0;
-		if (cart.has_rtc)
-			cart.rtc.dirty = 1;
 	}
 }
 
@@ -254,7 +251,6 @@ void gb_hw_reset(bool hard)
 	memset(hw.rmap, 0, sizeof(hw.rmap));
 	memset(hw.wmap, 0, sizeof(hw.wmap));
 
-	cart.sram_dirty = 0;
 	cart.bankmode = 0;
 	cart.rombank = 1;
 	cart.rambank = 0;
@@ -494,11 +490,7 @@ void gb_hw_write(unsigned a, byte b)
 		}
 		else
 		{
-			if (cart.rambanks[cart.rambank][a & 0x1FFF] != b)
-			{
-				cart.rambanks[cart.rambank][a & 0x1FFF] = b;
-				cart.sram_dirty |= (1 << cart.rambank);
-			}
+			cart.rambanks[cart.rambank][a & 0x1FFF] = b;
 		}
 		break;
 

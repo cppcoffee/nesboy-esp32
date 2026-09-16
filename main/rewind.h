@@ -7,6 +7,7 @@
 typedef struct {
     size_t state_size;
     int refresh_rate;
+    int slots; /* ring depth; 0 = default (NES_REWIND_SLOTS) */
     int (*save)(uint8_t *buffer);
     int (*load)(const uint8_t *buffer);
     void (*preview)(void);
@@ -32,9 +33,6 @@ rewind_action_t rewind_frame(bool rewind_key);
 
 /* Preview the restored frame, then undo emulation side effects. */
 void rewind_redraw(void);
-
-/* When paused, snapshot recording is suppressed. */
-void rewind_set_paused(bool paused);
 
 /* Drop all buffered snapshots and reset playback. Call after loading a state
  * from disk so rewind cannot step back into pre-load gameplay. */

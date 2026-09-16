@@ -12,6 +12,7 @@
 
 #include "app_config.h"
 #include "audio.h"
+#include "frame_stats.h"
 
 enum {
     AUDIO_MAX_SAMPLES_PER_FRAME = AUDIO_RATE / 50 + 2,
@@ -134,6 +135,15 @@ void audio_flush(void)
     }
 }
 
+static audio_frame_t *audio_acquire_frame(void)
+{
+    audio_frame_t *frame;
+    frame_stats_audio_wait_begin();
+    xQueueReceive(au.free_queue, &frame, portMAX_DELAY);
+    frame_stats_audio_wait_end();
+    return frame;
+}
+
 static void audio_write_frame(const int16_t *buf, int samples, bool stereo)
 {
     static bool audio_seen[2];
@@ -159,8 +169,7 @@ static void audio_write_frame(const int16_t *buf, int samples, bool stereo)
         }
     }
 
-    audio_frame_t *frame;
-    xQueueReceive(au.free_queue, &frame, portMAX_DELAY);
+    audio_frame_t *frame = audio_acquire_frame();
     frame->samples = samples;
     int volume_q8 = (au.volume_pct * 256 + 50) / 100;
     for (int i = 0; i < samples; i++) {

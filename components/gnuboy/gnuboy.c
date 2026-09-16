@@ -503,7 +503,6 @@ void gnuboy_set_time(int day, int hour, int minute, int second)
     cart.rtc.m = minute % 60;
     cart.rtc.s = second % 60;
     cart.rtc.ticks = 0;
-    cart.rtc.dirty = 0;
 }
 
 int gnuboy_get_hwtype(void)
@@ -525,144 +524,6 @@ void gnuboy_set_palette(gb_palette_t pal)
 {
     GB.video.colorize = pal;
     gb_lcd_pal_dirty();
-}
-
-bool gnuboy_sram_dirty(void)
-{
-    return cart.has_battery && (cart.sram_dirty != 0 || cart.rtc.dirty != 0);
-}
-
-int gnuboy_load_sram(const char *file)
-{
-    if (!cart.has_battery || !cart.ramsize || !file || !*file) {
-        return -1;
-    }
-
-    FILE *f = fopen(file, "rb");
-    if (!f) {
-        return -2;
-    }
-
-    MESSAGE_INFO("Loading SRAM from '%s'\n", file);
-
-    cart.sram_dirty = 0;
-    cart.sram_saved = 0;
-    cart.rtc.dirty = 0;
-
-    for (int i = 0; i < cart.ramsize; i++) {
-        if (fseek(f, i * 8192, SEEK_SET) == 0 && fread(cart.rambanks[i], 8192, 1, f) == 1) {
-            MESSAGE_INFO("Loaded SRAM bank %d.\n", i);
-            cart.sram_saved |= (1 << i);
-        }
-    }
-
-    unsigned all_banks = (1u << cart.ramsize) - 1u;
-    cart.sram_dirty |= all_banks & ~cart.sram_saved;
-
-    if (cart.has_rtc) {
-        uint32_t rtc_buf[12];
-
-        if (fseek(f, cart.ramsize * 8192, SEEK_SET) == 0 && fread(&rtc_buf, 48, 1, f) == 1) {
-            cart.rtc = (gb_rtc_t){
-                .s = rtc_buf[0],
-                .m = rtc_buf[1],
-                .h = rtc_buf[2],
-                .d = rtc_buf[3],
-                .flags = rtc_buf[4],
-                .regs = {rtc_buf[5], rtc_buf[6], rtc_buf[7], rtc_buf[8], rtc_buf[9]},
-            };
-            MESSAGE_INFO("Loaded RTC section %03d %02d:%02d:%02d.\n", cart.rtc.d, cart.rtc.h, cart.rtc.m, cart.rtc.s);
-        } else {
-            cart.rtc.dirty = 1;
-        }
-    }
-
-    fclose(f);
-
-    return cart.sram_saved ? 0 : -1;
-}
-
-/**
- * Incremental saves update only dirty or previously missing SRAM banks in
- * place. Full saves replace the file and write every bank. Dirty flags are
- * cleared only after the file is closed successfully.
- */
-int gnuboy_save_sram(const char *file, bool quick_save)
-{
-    if (!cart.has_battery || !cart.ramsize || !file || !*file) {
-        return -1;
-    }
-
-    unsigned all_banks = (1u << cart.ramsize) - 1u;
-    unsigned banks_to_write = quick_save ? (cart.sram_dirty | ~cart.sram_saved) & all_banks : all_banks;
-    bool new_file = false;
-
-    FILE *f;
-    if (quick_save) {
-        errno = 0;
-        f = fopen(file, "r+b");
-        if (!f && errno == ENOENT) {
-            f = fopen(file, "w+b");
-            new_file = f != NULL;
-            banks_to_write = all_banks;
-        }
-    } else {
-        f = fopen(file, "wb");
-    }
-    if (!f) {
-        if (!quick_save) {
-            cart.sram_dirty |= all_banks;
-        }
-        return -2;
-    }
-
-    MESSAGE_INFO("%s SRAM to '%s'...\n", quick_save && !new_file ? "Updating" : "Saving", file);
-
-    bool ok = true;
-    for (int i = 0; i < cart.ramsize; i++) {
-        unsigned bank = 1u << i;
-        if ((banks_to_write & bank) == 0) {
-            continue;
-        }
-        if (fseek(f, i * 8192, SEEK_SET) != 0 || fwrite(cart.rambanks[i], 8192, 1, f) != 1) {
-            ok = false;
-            break;
-        }
-        MESSAGE_INFO("Saved SRAM bank %d.\n", i);
-    }
-
-    bool write_rtc = cart.has_rtc && (!quick_save || new_file || cart.rtc.dirty);
-    if (ok && write_rtc) {
-        uint64_t rt = RTC_BASE + cart.rtc.s + (cart.rtc.m * 60) + (cart.rtc.h * 3600) + (cart.rtc.d * 86400);
-        uint32_t *rtp = (uint32_t *)&rt;
-        uint32_t rtc_buf[12] = {
-            cart.rtc.s,       cart.rtc.m,       cart.rtc.h,       cart.rtc.d,       cart.rtc.flags, cart.rtc.regs[0],
-            cart.rtc.regs[1], cart.rtc.regs[2], cart.rtc.regs[3], cart.rtc.regs[4], rtp[0],         rtp[1],
-        };
-        if (fseek(f, cart.ramsize * 8192, SEEK_SET) != 0 || fwrite(&rtc_buf, 48, 1, f) != 1) {
-            ok = false;
-        } else {
-            MESSAGE_INFO("Saved RTC section.\n");
-        }
-    }
-
-    if (fclose(f) != 0) {
-        ok = false;
-    }
-    if (!ok) {
-        cart.sram_dirty |= banks_to_write;
-        if (write_rtc) {
-            cart.rtc.dirty = 1;
-        }
-        return -1;
-    }
-
-    cart.sram_dirty &= ~banks_to_write;
-    cart.sram_saved |= banks_to_write;
-    if (write_rtc) {
-        cart.rtc.dirty = 0;
-    }
-    return 0;
 }
 
 /**
@@ -934,20 +795,6 @@ static void state_restore_header(const byte *header, bool file_compat)
     gb_hw_updatemap();
 }
 
-static bool rtc_state_equal(const gb_rtc_t *a, const gb_rtc_t *b)
-{
-    if (a->sel != b->sel || a->flags != b->flags || a->latch != b->latch || a->ticks != b->ticks || a->d != b->d ||
-        a->h != b->h || a->m != b->m || a->s != b->s) {
-        return false;
-    }
-    for (int i = 0; i < 5; i++) {
-        if (a->regs[i] != b->regs[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 size_t gnuboy_state_size(void)
 {
     if (!hw.cpu || !hw.snd || !hw.rambanks || !hw.vbanks || !cart.rambanks || cart.ramsize < 1) {
@@ -1000,22 +847,9 @@ int gnuboy_load_state_mem(const void *buffer, size_t size)
     memcpy(hw.vbanks, p, vram_size);
     p += vram_size;
 
-    unsigned changed_banks = 0;
-    if (cart.has_battery) {
-        for (int i = 0; i < cart.ramsize; i++) {
-            if (memcmp(cart.rambanks[i], p + (size_t)i * 8192, 8192) != 0) {
-                changed_banks |= 1u << i;
-            }
-        }
-    }
     memcpy(cart.rambanks, p, cart_ram_size);
 
-    gb_rtc_t previous_rtc = cart.rtc;
     state_restore_header(buffer, false);
-    cart.sram_dirty |= changed_banks;
-    if (cart.has_rtc && !rtc_state_equal(&previous_rtc, &cart.rtc)) {
-        cart.rtc.dirty = 1;
-    }
 
     return 0;
 }

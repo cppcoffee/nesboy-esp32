@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -14,17 +15,31 @@
 #include "app_config.h"
 #include "audio.h"
 #include "buttons.h"
-#include "display.h"
 #include "frame_stats.h"
 #include "rewind.h"
 
 static const char *TAG = "emulator-nes";
+static uint16_t palette565[256];
 
 enum {
     NES_BUF_PITCH = 8 + 256 + 8,
     NES_BUF_HEIGHT = 240,
     NES_BUF_SIZE = NES_BUF_PITCH * NES_BUF_HEIGHT,
 };
+
+static void fill_display_row(uint16_t *dst, const uint16_t *previous, int screen_y, const void *frame)
+{
+    (void)previous;
+    const uint8_t *src = NES_SCREEN_GETPTR((uint8 *)frame, 8, screen_y);
+    for (int x = 0; x < LCD_W; x++) {
+        dst[x] = palette565[src[x]];
+    }
+}
+
+static void video_callback(uint8 *pixels)
+{
+    nes_setvidbuf(emulator_video_present(pixels));
+}
 
 static int load_rom(const char *path)
 {
@@ -82,7 +97,9 @@ static void rewind_preview(void)
 
 int emulator_nes_run(const char *rom_path)
 {
-    display_build_palette();
+    uint16_t *palette = nofrendo_buildpalette(NES_PALETTE_PVM, 16);
+    memcpy(palette565, palette, sizeof(palette565));
+    free(palette);
 
     uint8_t *pixels = heap_caps_malloc(NES_BUF_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
     if (!pixels) {
@@ -95,15 +112,17 @@ int emulator_nes_run(const char *rom_path)
         ESP_LOGE(TAG, "nes_init failed");
         return -1;
     }
-    nes->blit_func = display_blit;
-
     if (load_rom(rom_path) < 0) {
         return -1;
     }
+
+    emulator_video_start(NES_BUF_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL, fill_display_row);
+    nes->blit_func = video_callback;
     nes_setvidbuf(pixels);
     const rewind_backend_t rewind_backend = {
         .state_size = state_mem_size(),
         .refresh_rate = nes->refresh_rate,
+        .slots = NES_REWIND_SLOTS,
         .save = rewind_save,
         .load = rewind_load,
         .preview = rewind_preview,
@@ -129,8 +148,7 @@ int emulator_nes_run(const char *rom_path)
 
         frame_stats_begin();
         nes_emulate(true);
-        frame_stats_emulation_done();
         audio_write(nes->apu->buffer, nes->apu->samples_per_frame);
-        frame_stats_end();
+        frame_stats_end(true);
     }
 }

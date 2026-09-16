@@ -2,13 +2,7 @@
 #if CONFIG_PM_ENABLE
 #include "esp_pm.h"
 #endif
-#if CONFIG_ESP_WIFI_ENABLED
-#include "esp_wifi.h"
-#endif
-#if CONFIG_BT_ENABLED
-#include "esp_bt.h"
-#include "esp_bt_main.h"
-#endif
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "audio.h"
@@ -20,21 +14,6 @@
 #include "ui.h"
 
 static const char *TAG = "nesboy-esp32";
-
-static void radios_off(void)
-{
-#if CONFIG_ESP_WIFI_ENABLED
-    esp_wifi_stop();
-    esp_wifi_deinit();
-#endif
-#if CONFIG_BT_ENABLED
-    esp_bluedroid_disable();
-    esp_bluedroid_deinit();
-    esp_bt_controller_disable();
-    esp_bt_controller_deinit();
-    esp_bt_mem_release(ESP_BT_MODE_BTDM);
-#endif
-}
 
 static void show_error(const char *message)
 {
@@ -99,7 +78,6 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_pm_lock_acquire(cpu_lock));
 #endif
 
-    radios_off();
     audio_init();
     buttons_init();
 

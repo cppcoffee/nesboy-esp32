@@ -16,8 +16,6 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "gnuboy.h"
-#include "nofrendo.h"
 #include "pins.h"
 
 #include "app_config.h"
@@ -27,7 +25,8 @@
 enum {
     LCD_HOST = SPI2_HOST,
     LCD_PCLK_HZ = 80 * 1000 * 1000,
-    LCD_DMA_CHUNK_LINES = 120, /* 2 chunks x 120 = 240 lines, fills the screen */
+    LCD_DMA_CHUNK_LINES = 20,
+    LCD_DMA_CHUNKS = LCD_H / LCD_DMA_CHUNK_LINES,
     ST7789_CMD_FRCTRL2 = 0xC6,
     ST7789_60_HZ = 0x0F,
     OSD_FRAMES = 60,    /* 1 second at 60 FPS */
@@ -40,6 +39,7 @@ static const char *TAG = "display";
 struct display_pipe {
     esp_lcd_panel_handle_t lcd_panel;
     SemaphoreHandle_t lcd_done;
+    SemaphoreHandle_t state_lock;
     int pending_transfers;
     uint16_t *fb[2];
 };
@@ -55,7 +55,6 @@ struct display_osd {
 /* Top-level display state */
 static struct {
     struct display_pipe pipe;
-    uint16_t palette565[256];
     int brightness_pct;
     struct display_osd osd;
 } disp;
@@ -87,19 +86,6 @@ static void lcd_queue_chunk_dma(int y, int rows, const void *data)
     disp.pipe.pending_transfers++;
 }
 
-static void scale_gb_row(const uint16_t *src, uint16_t *dst)
-{
-    /* Exact nearest-neighbor 3:2 expansion used by x * 2 / 3:
-     * every two source pixels become [a, a, b]. */
-    for (int x = 0; x < GB_WIDTH; x += 2) {
-        uint16_t a = *src++;
-        uint16_t b = *src++;
-        *dst++ = a;
-        *dst++ = a;
-        *dst++ = b;
-    }
-}
-
 static void dim_rows(uint16_t *buffer, int top, int bottom)
 {
     for (int row = top; row < bottom; row++) {
@@ -113,8 +99,8 @@ static void dim_rows(uint16_t *buffer, int top, int bottom)
 static void draw_osd_text(uint16_t *buffer, int screen_y0)
 {
     const int text_h = 16;
-    /* 16-row text block centered on the 240-row screen; it straddles the
-     * 120-line DMA chunk boundary, so each chunk draws the rows it owns. */
+    /* 16-row text block centered on the 240-row screen; each DMA chunk
+     * draws the rows it owns. */
     const int top = (LCD_H - text_h) / 2;
 
     int band_top = top - 1 - screen_y0;
@@ -176,8 +162,8 @@ static void draw_osd(uint16_t *buffer, int screen_y0)
         return;
     }
 
-    /* Volume/brightness bars live at the bottom of the screen (second chunk). */
-    if (screen_y0 != LCD_DMA_CHUNK_LINES) {
+    /* Volume/brightness bars live in the bottom DMA chunk. */
+    if (screen_y0 != LCD_H - LCD_DMA_CHUNK_LINES) {
         return;
     }
 
@@ -228,7 +214,8 @@ void display_init(void)
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_chan));
 
     disp.pipe.lcd_done = xSemaphoreCreateCounting(2, 0);
-    if (!disp.pipe.lcd_done) {
+    disp.pipe.state_lock = xSemaphoreCreateMutex();
+    if (!disp.pipe.lcd_done || !disp.pipe.state_lock) {
         abort();
     }
 
@@ -286,14 +273,13 @@ void display_init(void)
     }
     disp.pipe.fb[1] = disp.pipe.fb[0] + LCD_W * LCD_DMA_CHUNK_LINES;
 
-    /* Clear the whole screen to black so no garbage shows before the first
-     * frame (the emulator now fills all 240 lines). */
+    /* Clear the whole screen to black so no garbage shows before the first frame. */
     memset(disp.pipe.fb[0], 0, LCD_W * LCD_DMA_CHUNK_LINES * sizeof(uint16_t));
-    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(disp.pipe.lcd_panel, 0, 0, LCD_W, LCD_DMA_CHUNK_LINES, disp.pipe.fb[0]));
-    xSemaphoreTake(disp.pipe.lcd_done, portMAX_DELAY);
-    ESP_ERROR_CHECK(
-        esp_lcd_panel_draw_bitmap(disp.pipe.lcd_panel, 0, LCD_DMA_CHUNK_LINES, LCD_W, LCD_H, disp.pipe.fb[0]));
-    xSemaphoreTake(disp.pipe.lcd_done, portMAX_DELAY);
+    for (int y = 0; y < LCD_H; y += LCD_DMA_CHUNK_LINES) {
+        ESP_ERROR_CHECK(
+            esp_lcd_panel_draw_bitmap(disp.pipe.lcd_panel, 0, y, LCD_W, y + LCD_DMA_CHUNK_LINES, disp.pipe.fb[0]));
+        xSemaphoreTake(disp.pipe.lcd_done, portMAX_DELAY);
+    }
 
     ESP_LOGI(TAG, "ST7789 ready: spi=%dMHz panel=60Hz DMA=2x%d lines", LCD_PCLK_HZ / 1000000, LCD_DMA_CHUNK_LINES);
 }
@@ -323,98 +309,72 @@ int display_get_brightness(void)
 
 void display_osd_show(int volume, int brightness)
 {
+    xSemaphoreTake(disp.pipe.state_lock, portMAX_DELAY);
     disp.osd = (struct display_osd){
         .frames = OSD_FRAMES,
         .volume = volume,
         .brightness = brightness,
     };
+    xSemaphoreGive(disp.pipe.state_lock);
 }
 
 void display_osd_text(const char *text)
 {
+    xSemaphoreTake(disp.pipe.state_lock, portMAX_DELAY);
     disp.osd = (struct display_osd){
         .frames = OSD_FRAMES,
         .volume = 0,
         .brightness = 0,
     };
     snprintf(disp.osd.text, sizeof(disp.osd.text), "%s", text ? text : "");
+    xSemaphoreGive(disp.pipe.state_lock);
 }
 
-void display_build_palette(void)
+/* Shared chunked DMA blit pipeline. `fill` writes one 240-pixel row into
+ * one of two alternating buffers; `osd` draws the overlay per chunk. */
+static void blit_chunks(display_fill_row_fn fill, const void *frame, bool osd)
 {
-    uint16_t *pal = nofrendo_buildpalette(NES_PALETTE_PVM, 16);
-    memcpy(disp.palette565, pal, sizeof(disp.palette565));
-    free(pal);
-}
-
-void display_blit(uint8 *bmp)
-{
-    if (!bmp) {
-        return;
+    if (osd) {
+        xSemaphoreTake(disp.pipe.state_lock, portMAX_DELAY);
     }
-
-    /* Fill all 240 lines in two 120-line chunks, double buffered across
-     * fb[0]/fb[1]. Each chunk converts NES 8-bit pixels to RGB565. */
     int y = 0;
-    for (int chunk = 0; chunk < 2; chunk++) {
+    for (int chunk = 0; chunk < LCD_DMA_CHUNKS; chunk++) {
         lcd_wait_buffer_dma();
+        uint16_t *buffer = disp.pipe.fb[chunk & 1];
         for (int row = 0; row < LCD_DMA_CHUNK_LINES; row++) {
-            const uint8_t *src = NES_SCREEN_GETPTR(bmp, 8, y + row);
-            uint16_t *dst = disp.pipe.fb[chunk] + row * LCD_W;
-            for (int x = 0; x < LCD_W; x++) {
-                dst[x] = disp.palette565[src[x]];
-            }
+            uint16_t *dst = buffer + row * LCD_W;
+            fill(dst, row > 0 ? dst - LCD_W : NULL, y + row, frame);
         }
-
-        draw_osd(disp.pipe.fb[chunk], y);
-
-        lcd_queue_chunk_dma(y, LCD_DMA_CHUNK_LINES, disp.pipe.fb[chunk]);
+        if (osd) {
+            draw_osd(buffer, y);
+        }
+        lcd_queue_chunk_dma(y, LCD_DMA_CHUNK_LINES, buffer);
         y += LCD_DMA_CHUNK_LINES;
     }
+    if (osd) {
+        xSemaphoreGive(disp.pipe.state_lock);
+    }
 }
 
-void display_blit_gb(const uint16_t *bmp)
+void display_blit(const void *frame, display_fill_row_fn fill_row)
 {
-    if (!bmp) {
+    if (!frame || !fill_row) {
         return;
     }
+    blit_chunks(fill_row, frame, true);
+}
 
-    int y = 0;
-    for (int chunk = 0; chunk < 2; chunk++) {
-        lcd_wait_buffer_dma();
-        for (int row = 0; row < LCD_DMA_CHUNK_LINES; row++) {
-            int screen_y = y + row;
-            uint16_t *dst = disp.pipe.fb[chunk] + row * LCD_W;
-            if (screen_y < 12 || screen_y >= 228) {
-                memset(dst, 0, LCD_W * sizeof(uint16_t));
-                continue;
-            }
-
-            int visible_y = screen_y - 12;
-            if ((visible_y % 3) == 1 && row > 0) {
-                memcpy(dst, dst - LCD_W, LCD_W * sizeof(uint16_t));
-            } else {
-                const uint16_t *src = bmp + (visible_y * 2 / 3) * GB_WIDTH;
-                scale_gb_row(src, dst);
-            }
-        }
-        draw_osd(disp.pipe.fb[chunk], y);
-        lcd_queue_chunk_dma(y, LCD_DMA_CHUNK_LINES, disp.pipe.fb[chunk]);
-        y += LCD_DMA_CHUNK_LINES;
-    }
+static void blit_fill_full(uint16_t *dst, const uint16_t *previous, int screen_y, const void *frame)
+{
+    (void)previous;
+    memcpy(dst, (const uint16_t *)frame + (size_t)screen_y * LCD_W, LCD_W * sizeof(uint16_t));
 }
 
 void display_draw_fullscreen(const uint16_t *fb)
 {
-    /* Full-screen blit for menus. Reuse the DMA pipeline: copy the source
-     * (which may live in PSRAM) into the internal DMA buffers in 2 chunks. */
-    int y = 0;
-    for (int chunk = 0; chunk < 2; chunk++) {
-        lcd_wait_buffer_dma();
-        memcpy(disp.pipe.fb[chunk], fb + (size_t)y * LCD_W, (size_t)LCD_W * LCD_DMA_CHUNK_LINES * sizeof(uint16_t));
-        lcd_queue_chunk_dma(y, LCD_DMA_CHUNK_LINES, disp.pipe.fb[chunk]);
-        y += LCD_DMA_CHUNK_LINES;
-    }
+    /* Full-screen blit for menus. Reuse the DMA pipeline to copy the source
+     * (which may live in PSRAM) through the two internal DMA buffers. */
+    blit_chunks(blit_fill_full, fb, false);
     /* Drain the last chunk */
     while (disp.pipe.pending_transfers > 0) {
         xSemaphoreTake(disp.pipe.lcd_done, portMAX_DELAY);

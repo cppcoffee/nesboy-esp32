@@ -165,7 +165,7 @@ enum {
 
 typedef struct
 {
-	int sel, flags, latch, dirty;
+	int sel, flags, latch;
 	int ticks; // Ticks (60 = +1s)
 	int d, h, m, s; // Current time
 	int regs[5]; // Latched time
@@ -183,8 +183,6 @@ typedef struct
 	// Memory
 	byte **rombanks; // [512];
 	byte (*rambanks)[8192];
-	unsigned sram_dirty;
-	unsigned sram_saved;
 
 	// Extra hardware
 	bool has_rumble;

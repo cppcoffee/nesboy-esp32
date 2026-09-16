@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include "nofrendo.h"
 
 /* Display dimensions */
 #define LCD_W 240
@@ -10,14 +9,11 @@
 /* Initialize LCD hardware (SPI, ST7789, DMA, backlight) */
 void display_init(void);
 
-/* Build the 8-bit → RGB565 palette LUT (call once after nofrendo init) */
-void display_build_palette(void);
-
-/* Blit one NES frame to the LCD. Designed to be used as nes->blit_func. */
-void display_blit(uint8 *bmp);
-
-/* Scale a 160x144 RGB565 Game Boy frame to 240x216 and center it vertically. */
-void display_blit_gb(const uint16_t *bmp);
+/* Convert and send one emulator frame. The emulator owns its pixel-format
+ * adapter; display only owns the LCD/DMA pipeline. */
+typedef void (*display_fill_row_fn)(uint16_t *dst, const uint16_t *previous,
+                                    int screen_y, const void *frame);
+void display_blit(const void *frame, display_fill_row_fn fill_row);
 
 /* Adjust backlight brightness by ±delta percent points (clamped 0–100). */
 void display_set_brightness(int delta);

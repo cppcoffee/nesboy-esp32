@@ -2,7 +2,6 @@
 
 #if NES_ENABLE_FRAME_STATS
 #include <stdint.h>
-#include <string.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -11,47 +10,86 @@ enum { FRAME_STATS_LOG_FRAMES = 600 };
 static const char *TAG = "frame-stats";
 
 struct frame_stats_state {
-    uint64_t frames;
-    int64_t fps_timer;
-    int64_t frame_start;
-    int64_t audio_start;
-    int64_t emulate_us;
-    int64_t emulate_max_us;
-    int64_t audio_wait_us;
+  uint64_t frames;
+  uint32_t displayed_frames;
+  int64_t fps_timer;
+  int64_t frame_start;
+  int64_t audio_wait_start;
+  int64_t frame_audio_wait_us;
+  int64_t emulate_us;
+  int64_t emulate_max_us;
+  int64_t audio_wait_us;
+  int64_t render_us;
+  int64_t skip_us;
+  uint32_t render_frames;
+  uint32_t skip_frames;
 };
 
 static struct frame_stats_state fs;
 
-void frame_stats_begin(void)
-{
-    fs.frame_start = esp_timer_get_time();
-    if (fs.fps_timer == 0) {
-        fs.fps_timer = fs.frame_start;
-    }
+void frame_stats_begin(void) {
+  fs.frame_start = esp_timer_get_time();
+  fs.frame_audio_wait_us = 0;
+  fs.audio_wait_start = 0;
+  if (fs.fps_timer == 0) {
+    fs.fps_timer = fs.frame_start;
+  }
 }
 
-void frame_stats_emulation_done(void)
-{
-    fs.audio_start = esp_timer_get_time();
+void frame_stats_audio_wait_begin(void) {
+  fs.audio_wait_start = esp_timer_get_time();
 }
 
-void frame_stats_end(void)
-{
-    int64_t frame_end = esp_timer_get_time();
-    int64_t frame_emulate_us = fs.audio_start - fs.frame_start;
-    fs.emulate_us += frame_emulate_us;
-    fs.audio_wait_us += frame_end - fs.audio_start;
-    if (frame_emulate_us > fs.emulate_max_us) {
-        fs.emulate_max_us = frame_emulate_us;
-    }
+void frame_stats_audio_wait_end(void) {
+  if (fs.audio_wait_start != 0) {
+    fs.frame_audio_wait_us += esp_timer_get_time() - fs.audio_wait_start;
+    fs.audio_wait_start = 0;
+  }
+}
 
-    if ((++fs.frames % FRAME_STATS_LOG_FRAMES) == 0) {
-        ESP_LOGI(TAG, "fps=%.1f emulate=%.2fms max=%.2fms audio_wait=%.2fms",
-                 FRAME_STATS_LOG_FRAMES * 1000000.0f / (frame_end - fs.fps_timer),
-                 fs.emulate_us / (FRAME_STATS_LOG_FRAMES * 1000.0f), fs.emulate_max_us / 1000.0f,
-                 fs.audio_wait_us / (FRAME_STATS_LOG_FRAMES * 1000.0f));
-        fs.fps_timer = frame_end;
-        memset(&fs.emulate_us, 0, sizeof(fs.emulate_us) * 3);
-    }
+void frame_stats_end(bool displayed) {
+  int64_t frame_end = esp_timer_get_time();
+  int64_t frame_emulate_us =
+      frame_end - fs.frame_start - fs.frame_audio_wait_us;
+  if (frame_emulate_us < 0) {
+    frame_emulate_us = 0;
+  }
+  fs.emulate_us += frame_emulate_us;
+  fs.audio_wait_us += fs.frame_audio_wait_us;
+  if (frame_emulate_us > fs.emulate_max_us) {
+    fs.emulate_max_us = frame_emulate_us;
+  }
+  fs.displayed_frames += displayed;
+  if (displayed) {
+    fs.render_us += frame_emulate_us;
+    fs.render_frames++;
+  } else {
+    fs.skip_us += frame_emulate_us;
+    fs.skip_frames++;
+  }
+
+  if ((++fs.frames % FRAME_STATS_LOG_FRAMES) == 0) {
+    float seconds_us = (float)(frame_end - fs.fps_timer);
+    ESP_LOGI(TAG,
+             "fps=%.1f display=%.1f emulate=%.2fms render=%.2fms skip=%.2fms "
+             "max=%.2fms audio_wait=%.2fms",
+             FRAME_STATS_LOG_FRAMES * 1000000.0f / seconds_us,
+             fs.displayed_frames * 1000000.0f / seconds_us,
+             fs.emulate_us / (FRAME_STATS_LOG_FRAMES * 1000.0f),
+             fs.render_frames ? fs.render_us / (fs.render_frames * 1000.0f)
+                              : 0.0f,
+             fs.skip_frames ? fs.skip_us / (fs.skip_frames * 1000.0f) : 0.0f,
+             fs.emulate_max_us / 1000.0f,
+             fs.audio_wait_us / (FRAME_STATS_LOG_FRAMES * 1000.0f));
+    fs.fps_timer = frame_end;
+    fs.displayed_frames = 0;
+    fs.emulate_us = 0;
+    fs.emulate_max_us = 0;
+    fs.audio_wait_us = 0;
+    fs.render_us = 0;
+    fs.skip_us = 0;
+    fs.render_frames = 0;
+    fs.skip_frames = 0;
+  }
 }
 #endif
