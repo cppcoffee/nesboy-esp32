@@ -26,6 +26,11 @@ static const char
 rcsid[] = "$Id: i_x.c,v 1.6 1997/02/03 22:45:10 b1 Exp $";
 
 #include "config.h"
+
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 #include "v_video.h"
 #include "m_argv.h"
 #include "d_event.h"
@@ -80,11 +85,11 @@ int usemouse = 0;
 #ifdef CMAP256
 
 boolean palette_changed;
-struct color colors[256];
+struct color colors[256] EXT_RAM_BSS_ATTR;
 
 #else  // CMAP256
 
-static struct color colors[256];
+static struct color colors[256] EXT_RAM_BSS_ATTR;
 
 
 #endif  // CMAP256

@@ -7,6 +7,7 @@
 #include "m_argv.h"
 
 #include "doomgeneric.h"
+#include "info.h"
 
 pixel_t* DG_ScreenBuffer = NULL;
 
@@ -19,6 +20,8 @@ void doomgeneric_Create(int argc, char **argv)
 	// save arguments
     myargc = argc;
     myargv = argv;
+
+	info_init_states();
 
 	M_FindResponseFile();
 

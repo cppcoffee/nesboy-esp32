@@ -19,6 +19,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 #include "doomfeatures.h"
 
 #include "d_event.h"
@@ -57,7 +61,7 @@ typedef struct
 // from all players.
 //
 
-static ticcmd_set_t ticdata[BACKUPTICS];
+static ticcmd_set_t ticdata[BACKUPTICS] EXT_RAM_BSS_ATTR;
 
 // The index of the next tic to be made (with a call to BuildTiccmd).
 

@@ -21,6 +21,10 @@
 
 
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 #include "doomdef.h"
 #include "deh_main.h"
 
@@ -60,7 +64,7 @@ int		scaledviewwidth;
 int		viewheight;
 int		viewwindowx;
 int		viewwindowy; 
-byte*		ylookup[MAXHEIGHT]; 
+byte*		ylookup[MAXHEIGHT] EXT_RAM_BSS_ATTR; 
 int		columnofs[MAXWIDTH]; 
 
 // Color tables for different players,

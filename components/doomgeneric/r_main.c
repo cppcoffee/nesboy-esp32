@@ -25,6 +25,10 @@
 #include <stdlib.h>
 #include <math.h>
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 
 #include "doomdef.h"
 #include "d_loop.h"
@@ -99,7 +103,7 @@ angle_t			xtoviewangle[SCREENWIDTH+1];
 
 lighttable_t*		scalelight[LIGHTLEVELS][MAXLIGHTSCALE];
 lighttable_t*		scalelightfixed[MAXLIGHTSCALE];
-lighttable_t*		zlight[LIGHTLEVELS][MAXLIGHTZ];
+lighttable_t*		zlight[LIGHTLEVELS][MAXLIGHTZ] EXT_RAM_BSS_ATTR;
 
 // bumped light from gun blasts
 int			extralight;			

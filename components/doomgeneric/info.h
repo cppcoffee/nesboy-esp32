@@ -1156,6 +1156,10 @@ typedef struct
 extern state_t	states[NUMSTATES];
 extern char *sprnames[];
 
+/* Copy the flash-resident initial state table into the working states[].
+ * Must run once before the game starts (see doomgeneric_Create). */
+void info_init_states(void);
+
 typedef enum {
     MT_PLAYER,
     MT_POSSESSED,

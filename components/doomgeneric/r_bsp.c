@@ -19,6 +19,10 @@
 
 
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 #include "doomdef.h"
 
 #include "m_bbox.h"
@@ -43,7 +47,7 @@ line_t*		linedef;
 sector_t*	frontsector;
 sector_t*	backsector;
 
-drawseg_t	drawsegs[MAXDRAWSEGS];
+drawseg_t	drawsegs[MAXDRAWSEGS] EXT_RAM_BSS_ATTR;
 drawseg_t*	ds_p;
 
 

@@ -20,11 +20,16 @@
 //
 
 #include <stdlib.h>
+
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 #include "d_event.h"
 
 #define MAXEVENTS 64
 
-static event_t events[MAXEVENTS];
+static event_t events[MAXEVENTS] EXT_RAM_BSS_ATTR;
 static int eventhead;
 static int eventtail;
 

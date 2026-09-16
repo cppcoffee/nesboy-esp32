@@ -25,6 +25,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 #include "config.h"
 #include "deh_main.h"
 #include "doomdef.h"
@@ -122,8 +126,8 @@ boolean         bfgedition;
 // If true, the main game loop has started.
 boolean         main_loop_started = false;
 
-char		wadfile[1024];		// primary wad file
-char		mapdir[1024];           // directory of development maps
+char		wadfile[1024] EXT_RAM_BSS_ATTR;		// primary wad file
+char		mapdir[1024] EXT_RAM_BSS_ATTR;           // directory of development maps
 
 int             show_endoom = 1;
 

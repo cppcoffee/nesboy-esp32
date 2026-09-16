@@ -21,6 +21,10 @@
 #include <stdlib.h>
 #include <math.h>
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
+
 #include "doomdef.h" 
 #include "doomkeys.h"
 #include "doomstat.h"
@@ -118,7 +122,7 @@ boolean         viewactive;
 int             deathmatch;           	// only if started as net death 
 boolean         netgame;                // only true if packets are broadcast 
 boolean         playeringame[MAXPLAYERS]; 
-player_t        players[MAXPLAYERS]; 
+player_t        players[MAXPLAYERS] EXT_RAM_BSS_ATTR; 
 
 boolean         turbodetected[MAXPLAYERS];
  
