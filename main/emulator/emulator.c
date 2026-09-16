@@ -50,15 +50,10 @@ struct emulator {
 
 static const char *const nes_extensions[] = {".nes", NULL};
 static const char *const gb_extensions[] = {".gb", ".gbc", NULL};
-static const char *const snes_extensions[] = {".sfc", ".smc", ".swc", ".fig",
-                                              NULL};
-static const char *const sms_extensions[] = {".sms", ".gg", NULL};
 
 static const emulator_t emulators[] = {
     {.extensions = nes_extensions, .run = emulator_nes_run},
     {.extensions = gb_extensions, .run = emulator_gb_run},
-    {.extensions = snes_extensions, .run = emulator_snes_run},
-    {.extensions = sms_extensions, .run = emulator_sms_run},
 };
 
 const emulator_t *emulator_find(const char *rom_path) {
@@ -91,8 +86,8 @@ void emulator_video_start(size_t frame_size, uint32_t memory_caps,
   bool spare_in_psram = (memory_caps & MALLOC_CAP_SPIRAM) != 0;
   void *spare_frame = heap_caps_malloc(frame_size, memory_caps);
   if (!spare_frame && (memory_caps & MALLOC_CAP_INTERNAL)) {
-    /* Large internal-RAM frames (SMS is 96 KB) may not fit twice; a PSRAM
-     * spare only costs fill_row some PSRAM read latency. */
+    /* Large internal-RAM frames may not fit twice; a PSRAM spare only costs
+     * fill_row some PSRAM read latency. */
     spare_frame =
         heap_caps_malloc(frame_size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
     if (spare_frame) {

@@ -1,8 +1,8 @@
 # nesboy-esp32
 
-Minimal ESP-IDF NES, Game Boy, Game Boy Color, and Super Nintendo emulator for ESP32-S3.
+Minimal ESP-IDF NES, Game Boy, and Game Boy Color emulator for ESP32-S3.
 
-NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. SNES renders up to the ROM's native **50/60 FPS**, with adaptive video-only frame skipping in heavy scenes so emulation and audio keep their native rate. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, `.gbc`, and `.sfc`/`.smc`/`.swc`/`.fig` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h`, and reuses the `nofrendo`, `gnuboy`, and trimmed `snes9x` cores from `retro-goretro-go`.
+NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, and `.gbc` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h` and reuses the `nofrendo` and `gnuboy` cores from `retro-goretro-go`.
 
 ## Playing Games from the SD Card
 
@@ -11,12 +11,12 @@ The ROM used at runtime is chosen from the SD card at boot. Changing games is no
 ### Setup
 
 1. **Format the SD card as FAT32** (most cards come pre-formatted; a 32 GB card works fine). The ESP-IDF FATFS in this build does *not* support exFAT, so exFAT-formatted cards must be reformatted to FAT32 first.
-2. **Copy `.nes`, `.gb`, `.gbc`, or `.sfc`/`.smc` files** to the card. NES files are read up to 2 MB; Game Boy ROM banks are loaded from the card into PSRAM as needed; SNES ROMs up to 6 MB are loaded into PSRAM. Other files are hidden from the browser.
+2. **Copy `.nes`, `.gb`, or `.gbc` files** to the card. NES files are read up to 2 MB and Game Boy ROM banks are loaded from the card into PSRAM as needed. Other files are hidden from the browser.
 3. Insert the card and power on the board.
 
 ### Using the browser
 
-The browser opens with a pixel-art emulator menu: NES, Game Boy / Color, and Super Nintendo. Press A to enter a system and see only its compatible ROMs; press B from the ROM list to return to the emulator menu. Directories remain available inside each system (Left or Select goes to the parent folder), with directories first and ROMs sorted alphabetically. Extension matching is case-insensitive, and up to 1024 entries are shown per folder. It is a one-shot startup picker: after a ROM is selected, reset/re-power the ESP32 to pick another game.
+The browser opens with a pixel-art emulator menu: NES and Game Boy / Color. Press A to enter a system and see only its compatible ROMs; press B from the ROM list to return to the emulator menu. Directories remain available inside each system (Left or Select goes to the parent folder), with directories first and ROMs sorted alphabetically. Extension matching is case-insensitive, and up to 1024 entries are shown per folder. It is a one-shot startup picker: after a ROM is selected, reset/re-power the ESP32 to pick another game.
 
 While a ROM is highlighted, the browser shows box art in the bottom-right corner: a 24/32-bit uncompressed BMP named after the ROM without its extension (e.g. `smb.nes` → `smb.bmp`). Any image can be converted with ImageMagick (`magick cover.png -resize 192x192 smb.bmp`) or `sips -s format bmp cover.png --out smb.bmp`; the browser scales it automatically. Missing or unreadable images are simply skipped.
 
@@ -39,7 +39,7 @@ While a ROM is highlighted, the browser shows box art in the bottom-right corner
 | 3.3 V | 3.3 V |
 | GND | GND |
 
-The SD card runs on a separate SPI bus (**SPI3_HOST**) from the LCD (**SPI2_HOST**), at up to 40 MHz (the exact speed is negotiated with the card and reported at boot). GPIO11–14 are plain GPIOs on the ESP32-S3, so the pull-up resistors on the breakout do not interfere with boot — the classic-ESP32 "GPIO12/MTDI strapping" warning does **not** apply to this board.
+The SD card runs on a separate SPI bus (**SPI3_HOST**) from the LCD (**SPI2_HOST**), capped at 10 MHz for reliable sustained reads through breakout wiring (the negotiated speed is reported at boot). GPIO11–14 are plain GPIOs on the ESP32-S3, so the pull-up resistors on the breakout do not interfere with boot — the classic-ESP32 "GPIO12/MTDI strapping" warning does **not** apply to this board.
 
 ### No embedded ROM
 
@@ -52,15 +52,6 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - Stereo audio uses the same 32 kHz I2S output and volume controls as NES.
 - Battery RAM is not read from or periodically written to the SD card during gameplay; use a save state for persistence across power-off.
 - The dedicated Rewind button works for GB and GBC games as well as NES.
-
-### Super Nintendo notes
-
-- `.sfc`, `.smc`, `.swc`, and `.fig` use a trimmed `snes9x` interpreter core (Snes9x license, see `components/snes9x/src/LICENSE`).
-- The native 256×224 image is scaled horizontally to 240 columns with nearest-neighbor (15:16 — one source column dropped per 16) and centered vertically (8 black rows top and bottom). Mode 5/6 output is reduced to 256 columns inside the renderer, and interlaced output uses one field to fit the fixed 256×239 framebuffer safely.
-- Rendering attempts every native frame (60 FPS NTSC or 50 FPS PAL). SNES uses two PSRAM framebuffers so CPU1 can emulate/render while CPU0 scales and transmits the previous frame; the higher-priority audio task also runs on CPU0. If a heavy scene still misses its real-time deadline, only video output is skipped until the audio-paced core catches up, so game and audio timing remain native.
-- Special-chip support is limited in this trimmed core: SuperFX (Star Fox, Yoshi's Island), SA-1 (Super Mario RPG), S-DD1 (Star Ocean), and SPC7110 games cannot run correctly. DSP-1/2/3/4, C4, OBC1, and S-RTC support is compiled in. Standard LoROM/HiROM games work.
-- Battery RAM is not written to the SD card during gameplay; use a save state for persistence across power-off.
-- Save states and rewind work; each SNES snapshot is ~357 KB. The ROM buffer is sized to the selected cartridge up to 6 MB, so smaller games retain 5 rewind slots (15 s of history), while a 6 MB game normally has room for one slot (3 s).
 
 ## Flashing / Rebuilding
 
@@ -79,7 +70,7 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 
 ### Notes
 
-- Supported ROM formats are `.nes`, `.gb`, `.gbc`, and `.sfc`/`.smc`/`.swc`/`.fig`; compressed archives are not supported.
+- Supported ROM formats are `.nes`, `.gb`, and `.gbc`; compressed archives are not supported.
 - If the screen stays white or black after selecting a ROM, the ROM may be incompatible with the selected core.
 
 ## Build
@@ -94,11 +85,11 @@ idf.py -p /dev/tty.usbmodemXXXX flash monitor
 
 ## Rewind
 
-For NES, GB, GBC, and SNES games, a dedicated **Rewind** button (GPIO 8, active-low) scrubs the game backward while held. The longer you hold it, the farther back it goes, in roughly 1-second steps; releasing the button stops the rewind and continues from the restored point. At the oldest snapshot the playback wraps around and cycles back to the newest one, so holding the button keeps looping through the ring.
+For NES, GB, and GBC games, a dedicated **Rewind** button (GPIO 8, active-low) scrubs the game backward while held. The longer you hold it, the farther back it goes, in roughly 1-second steps; releasing the button stops the rewind and continues from the restored point. At the oldest snapshot the playback wraps around and cycles back to the newest one, so holding the button keeps looping through the ring.
 
 While the button is held, normal gameplay and audio output are paused. Each rewind step restores an older snapshot, previews a frame, and restores the snapshot again so gameplay continues from the selected point when the button is released.
 
-Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each; SNES snapshots are ~357 KB. The SNES ROM buffer is allocated from the smallest 512 KB/2 MB/4 MB/6 MB bucket that fits the selected cartridge. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation; if PSRAM runs short, as many slots as fit are allocated and the history shortens instead of rewind disabling itself — a 6 MB SNES game normally keeps one 3-second slot. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
+Internally the emulator captures one in-memory state snapshot every 3 seconds into a ring buffer, so history length is slots × 3 seconds. NES snapshots are roughly 15 KB for mapper-0 CHR-ROM games with 8 KB PRG RAM; GB/GBC snapshots vary with cartridge RAM from about 28 KB to 180 KB each. Rewind slots live in PSRAM (octal PSRAM is enabled in this build) via explicit `MALLOC_CAP_SPIRAM` allocation; if PSRAM runs short, as many slots as fit are allocated and the history shortens instead of rewind disabling itself. The log after a ROM loads reports the exact slot size, total rewind allocation, and remaining PSRAM/internal RAM.
 
 ### Memory lifecycle
 
@@ -151,11 +142,11 @@ User-configurable build macros are kept in `main/app_config.h`. FPS logging is d
 #define NES_ENABLE_FRAME_STATS 1
 ```
 
-When enabled, one summary is printed every 600 outer-loop frames for every emulator. The original Game Boy timing is about 59.73 FPS, so a healthy GB/GBC result is approximately 59.7 FPS rather than exactly 60.0; SNES emulation stays at the ROM's native 50/60 Hz while `display` reports the adaptive rendered FPS.
+When enabled, one summary is printed every 600 outer-loop frames for every emulator. The original Game Boy timing is about 59.73 FPS, so a healthy GB/GBC result is approximately 59.7 FPS rather than exactly 60.0.
 
 The log reports emulation `fps`, rendered `display` FPS, average and maximum `emulate` work time, and `audio_wait`. Audio-queue blocking is measured where it actually occurs and excluded from `emulate`, so the values can be used to tell CPU/GPU work from normal audio pacing.
 
-The full 240×240 screen is filled each frame (NES overscan is not cropped) using 20-line DMA chunks with two alternating internal-RAM buffers. NES, GB/GBC, and SNES also use two emulator framebuffers, so CPU1 can emulate the next frame while CPU0 converts and sends the previous one. This keeps the SPI/GDMA pipeline busy while releasing about 94 KiB of scarce internal RAM for emulator hot memory.
+The full 240×240 screen is filled each frame (NES overscan is not cropped) using 20-line DMA chunks with two alternating internal-RAM buffers. NES and GB/GBC also use two emulator framebuffers, so CPU1 can emulate the next frame while CPU0 converts and sends the previous one. This keeps the SPI/GDMA pipeline busy while releasing about 94 KiB of scarce internal RAM for emulator hot memory.
 
 Set `NES_ENABLE_FRAME_STATS` back to `0` for normal builds. The counters, timing, and log formatting are implemented separately in `main/frame_stats.c`.
 

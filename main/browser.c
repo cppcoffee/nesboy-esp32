@@ -36,7 +36,7 @@ static const char *TAG = "browser";
 #define PREVIEW_Y    (FOOTER_TOP - PREVIEW_SIZE - 7)     /* 118 */
 
 enum {
-    SYSTEM_COUNT = 3,
+    SYSTEM_COUNT = 2,
     SYSTEM_ICON_SIZE = 48,
     SYSTEM_ICON_KEY = 0xF81F,
 };
@@ -55,7 +55,6 @@ typedef struct {
 static const system_entry_t systems[SYSTEM_COUNT] = {
     {.name = "NES", .probe_rom = "game.nes", .icon = 0},
     {.name = "GAME BOY / COLOR", .probe_rom = "game.gb", .icon = 1},
-    {.name = "SUPER NINTENDO", .probe_rom = "game.sfc", .icon = 3},
 };
 
 extern const uint8_t emulator_icons_start[] asm("_binary_emulator_icons_rgb565_start");

@@ -25,5 +25,3 @@ void emulator_video_start(size_t frame_size, uint32_t memory_caps,
 void *emulator_video_present(void *frame);
 int emulator_nes_run(const char *rom_path);
 int emulator_gb_run(const char *rom_path);
-int emulator_sms_run(const char *rom_path);
-int emulator_snes_run(const char *rom_path);
