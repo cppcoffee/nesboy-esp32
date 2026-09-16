@@ -50,10 +50,12 @@ struct emulator {
 
 static const char *const nes_extensions[] = {".nes", NULL};
 static const char *const gb_extensions[] = {".gb", ".gbc", NULL};
+static const char *const doom_extensions[] = {".wad", NULL};
 
 static const emulator_t emulators[] = {
     {.extensions = nes_extensions, .run = emulator_nes_run},
     {.extensions = gb_extensions, .run = emulator_gb_run},
+    {.extensions = doom_extensions, .run = emulator_doom_run},
 };
 
 const emulator_t *emulator_find(const char *rom_path) {

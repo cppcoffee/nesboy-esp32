@@ -1,8 +1,8 @@
 # nesboy-esp32
 
-Minimal ESP-IDF NES, Game Boy, and Game Boy Color emulator for ESP32-S3.
+Minimal ESP-IDF NES, Game Boy, Game Boy Color, and Doom launcher for ESP32-S3.
 
-NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, and `.gbc` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h` and reuses the `nofrendo` and `gnuboy` cores from `retro-goretro-go`.
+NES runs at a full **60 FPS** (NTSC), driven by audio-paced frame timing on the 240 MHz dual-core ESP32-S3. On boot, the ROM browser scans the SD card and accepts `.nes`, `.gb`, `.gbc`, and user-supplied Doom `.wad` files; there is no embedded fallback ROM. It uses the ST7789/I2S/button wiring defined in `main/pins.h` and reuses the `nofrendo`, `gnuboy`, and DoomGeneric cores.
 
 ## Playing Games from the SD Card
 
@@ -11,12 +11,12 @@ The ROM used at runtime is chosen from the SD card at boot. Changing games is no
 ### Setup
 
 1. **Format the SD card as FAT32** (most cards come pre-formatted; a 32 GB card works fine). The ESP-IDF FATFS in this build does *not* support exFAT, so exFAT-formatted cards must be reformatted to FAT32 first.
-2. **Copy `.nes`, `.gb`, or `.gbc` files** to the card. NES files are read up to 2 MB and Game Boy ROM banks are loaded from the card into PSRAM as needed. Other files are hidden from the browser.
+2. **Copy `.nes`, `.gb`, `.gbc`, or your own Doom `.wad` files** to the card. NES files are read up to 2 MB and Game Boy ROM banks are loaded from the card into PSRAM as needed. Other files are hidden from the browser.
 3. Insert the card and power on the board.
 
 ### Using the browser
 
-The browser opens with a pixel-art emulator menu: NES and Game Boy / Color. Press A to enter a system and see only its compatible ROMs; press B from the ROM list to return to the emulator menu. Directories remain available inside each system (Left or Select goes to the parent folder), with directories first and ROMs sorted alphabetically. Extension matching is case-insensitive, and up to 1024 entries are shown per folder. It is a one-shot startup picker: after a ROM is selected, reset/re-power the ESP32 to pick another game.
+The browser opens with a pixel-art emulator menu: NES, Game Boy / Color, and DOS / Doom. Press A to enter a system and see only its compatible ROMs; press B from the ROM list to return to the emulator menu. Directories remain available inside each system (Left or Select goes to the parent folder), with directories first and ROMs sorted alphabetically. Extension matching is case-insensitive, and up to 1024 entries are shown per folder. It is a one-shot startup picker: after a ROM is selected, reset/re-power the ESP32 to pick another game.
 
 While a ROM is highlighted, the browser shows box art in the bottom-right corner: a 24/32-bit uncompressed BMP named after the ROM without its extension (e.g. `smb.nes` → `smb.bmp`). Any image can be converted with ImageMagick (`magick cover.png -resize 192x192 smb.bmp`) or `sips -s format bmp cover.png --out smb.bmp`; the browser scales it automatically. Missing or unreadable images are simply skipped.
 
@@ -52,6 +52,13 @@ There is no fallback ROM compiled into the firmware: a game must always be picke
 - Stereo audio uses the same 32 kHz I2S output and volume controls as NES.
 - Battery RAM is not read from or periodically written to the SD card during gameplay; use a save state for persistence across power-off.
 - The dedicated Rewind button works for GB and GBC games as well as NES.
+
+### Doom notes
+
+- Select **DOS / DOOM** in the launcher and choose a compatible `.wad` from the SD card. The firmware contains no game data and ignores non-WAD files.
+- DoomGeneric runs the original Doom game clock at 35 Hz; the display is scaled from 320x200 to a centered 240x150 image. It is therefore intentionally separate from the 60 FPS NES/GB promise.
+- `A` fires, `B` uses/open doors, the D-pad moves and turns, `Start` confirms, and `Select` opens the Doom menu.
+- The current Doom port is video and input only; music and sound effects are disabled until the original sound backend is adapted to the project's I2S audio path.
 
 ## Flashing / Rebuilding
 

@@ -36,7 +36,7 @@ static const char *TAG = "browser";
 #define PREVIEW_Y    (FOOTER_TOP - PREVIEW_SIZE - 7)     /* 118 */
 
 enum {
-    SYSTEM_COUNT = 2,
+    SYSTEM_COUNT = 3,
     SYSTEM_ICON_SIZE = 48,
     SYSTEM_ICON_KEY = 0xF81F,
 };
@@ -49,15 +49,17 @@ typedef struct {
 typedef struct {
     const char *name;
     const char *probe_rom;
-    uint8_t icon;
+    const uint8_t *icon;
 } system_entry_t;
 
-static const system_entry_t systems[SYSTEM_COUNT] = {
-    {.name = "NES", .probe_rom = "game.nes", .icon = 0},
-    {.name = "GAME BOY / COLOR", .probe_rom = "game.gb", .icon = 1},
-};
-
 extern const uint8_t emulator_icons_start[] asm("_binary_emulator_icons_rgb565_start");
+extern const uint8_t dos_icon_start[] asm("_binary_dos_icon_rgb565_start");
+
+static const system_entry_t systems[SYSTEM_COUNT] = {
+    {.name = "NES", .probe_rom = "game.nes", .icon = emulator_icons_start},
+    {.name = "GAME BOY / COLOR", .probe_rom = "game.gb", .icon = emulator_icons_start + SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE},
+    {.name = "DOS / DOOM", .probe_rom = "doom.wad", .icon = dos_icon_start},
+};
 
 /* Preview cache: decoded box art for the currently selected ROM. */
 static uint16_t *preview_px;
@@ -215,7 +217,6 @@ static void draw_system_menu(int cursor)
     ui_fill_rect(0, 0, LCD_W, UI_FONT_H + 4, UI_COLOR_DARK);
     ui_draw_text(4, 2, "SELECT EMULATOR", UI_COLOR_YELLOW);
 
-    const uint16_t *icons = (const uint16_t *)emulator_icons_start;
     for (int i = 0; i < SYSTEM_COUNT; i++) {
         int y = LIST_TOP + i * SYSTEM_ICON_SIZE;
         int selected = i == cursor;
@@ -223,7 +224,7 @@ static void draw_system_menu(int cursor)
             ui_fill_rect(0, y, LCD_W, SYSTEM_ICON_SIZE, UI_COLOR_BLUE);
         }
         ui_blit_keyed(8, y, SYSTEM_ICON_SIZE, SYSTEM_ICON_SIZE,
-                      icons + systems[i].icon * SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE, SYSTEM_ICON_KEY);
+                      (const uint16_t *)systems[i].icon, SYSTEM_ICON_KEY);
         ui_draw_text(68, y + 16, systems[i].name, selected ? UI_COLOR_WHITE : UI_COLOR_GREY);
     }
 
