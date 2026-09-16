@@ -41,6 +41,10 @@ enum {
     SYSTEM_ICON_KEY = 0xF81F,
 };
 
+/* Icons are embedded as little-endian RGB565, so one 48x48 tile spans
+ * SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE * 2 bytes. */
+#define SYSTEM_ICON_BYTES (SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE * sizeof(uint16_t))
+
 typedef struct {
     char name[MAX_NAME];
     uint8_t is_dir;
@@ -57,7 +61,7 @@ extern const uint8_t dos_icon_start[] asm("_binary_dos_icon_rgb565_start");
 
 static const system_entry_t systems[SYSTEM_COUNT] = {
     {.name = "NES", .probe_rom = "game.nes", .icon = emulator_icons_start},
-    {.name = "GAME BOY / COLOR", .probe_rom = "game.gb", .icon = emulator_icons_start + SYSTEM_ICON_SIZE * SYSTEM_ICON_SIZE},
+    {.name = "GAME BOY / COLOR", .probe_rom = "game.gb", .icon = emulator_icons_start + SYSTEM_ICON_BYTES},
     {.name = "DOS / DOOM", .probe_rom = "doom.wad", .icon = dos_icon_start},
 };
 
