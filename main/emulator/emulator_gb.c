@@ -38,12 +38,13 @@ static void fill_display_row(uint16_t *dst, const uint16_t *previous, int screen
     }
 
     int visible_y = screen_y - 12;
+    const uint16_t *src = (const uint16_t *)frame + visible_y * 2 / 3 * GB_WIDTH;
+#if GB_SCALE_FAST
     if ((visible_y % 3) == 1 && previous) {
         memcpy(dst, previous, LCD_W * sizeof(*dst));
         return;
     }
 
-    const uint16_t *src = (const uint16_t *)frame + visible_y * 2 / 3 * GB_WIDTH;
     for (int x = 0; x < GB_WIDTH; x += 2) {
         uint16_t a = *src++;
         uint16_t b = *src++;
@@ -51,6 +52,13 @@ static void fill_display_row(uint16_t *dst, const uint16_t *previous, int screen
         *dst++ = a;
         *dst++ = b;
     }
+#else
+    (void)previous;
+    /* Naive nearest-neighbor 3:2: recompute every output column. */
+    for (int x = 0; x < LCD_W; x++) {
+        dst[x] = src[x * 2 / 3];
+    }
+#endif
 }
 
 static void audio_callback(void *buffer, size_t length)
@@ -142,7 +150,9 @@ int emulator_gb_run(const char *rom_path)
         .load = rewind_load,
         .preview = rewind_preview,
     };
+#if REWIND_ENABLE
     rewind_init(&rewind_backend);
+#endif
 
     const TickType_t frame_delay = pdMS_TO_TICKS(1000 / rewind_backend.refresh_rate);
     emulator_settings_t settings = {0};

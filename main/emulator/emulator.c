@@ -12,18 +12,23 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+#include "app_config.h"
 #include "audio.h"
 #include "buttons.h"
 #include "display.h"
 #include "emulator_internal.h"
 #include "savestate.h"
 
+#if EMU_VIDEO_ASYNC
 static const char *TAG = "emulator";
+#endif
 
+#if EMU_VIDEO_ASYNC
 enum {
   VIDEO_TASK_STACK = 4096,
   VIDEO_TASK_PRIORITY = 3, /* audio on CPU0 remains higher at 4 */
 };
+#endif
 
 static struct {
   QueueHandle_t ready;
@@ -32,6 +37,7 @@ static struct {
   bool running;
 } video;
 
+#if EMU_VIDEO_ASYNC
 static void video_task(void *arg) {
   (void)arg;
 
@@ -42,6 +48,7 @@ static void video_task(void *arg) {
     xQueueSend(video.free, &frame, portMAX_DELAY);
   }
 }
+#endif
 
 struct emulator {
   const char *const *extensions;
@@ -85,6 +92,7 @@ int emulator_run(const emulator_t *emulator, const char *rom_path) {
 void emulator_video_start(size_t frame_size, uint32_t memory_caps,
                           display_fill_row_fn fill_row) {
   video.fill_row = fill_row;
+#if EMU_VIDEO_ASYNC
   bool spare_in_psram = (memory_caps & MALLOC_CAP_SPIRAM) != 0;
   void *spare_frame = heap_caps_malloc(frame_size, memory_caps);
   if (!spare_frame && (memory_caps & MALLOC_CAP_INTERNAL)) {
@@ -128,6 +136,7 @@ void emulator_video_start(size_t frame_size, uint32_t memory_caps,
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
       (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL |
                                                  MALLOC_CAP_8BIT));
+#endif
 }
 
 void *emulator_video_present(void *frame) {

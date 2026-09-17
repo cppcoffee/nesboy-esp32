@@ -17,6 +17,12 @@
 
 #define BANK_SIZE 0x4000
 
+/* Number of ROM banks preloaded into PSRAM at load time. Lower this (e.g. 1)
+ * to ablate the bank cache: bank switches then re-read the SD card. */
+#ifndef GB_PRELOAD_BANKS
+#define GB_PRELOAD_BANKS 128
+#endif
+
 static void *alloc_rom_bank(void)
 {
 #ifdef ESP_PLATFORM
@@ -434,7 +440,7 @@ int gnuboy_load_rom_file(const char *file)
     // Gameboy color games can be very large so we preload a maximum of 128 banks for faster boot
     // Also 4/8MB games do not fully fit anyway, we need to leave room for our bank manager's swapping.
 
-    int preload = cart.romsize < 128 ? cart.romsize : 128;
+    int preload = cart.romsize < GB_PRELOAD_BANKS ? cart.romsize : GB_PRELOAD_BANKS;
 
     if (cart.romsize > 64 && (strncmp(cart.name, "RAYMAN", 6) == 0 || strncmp(cart.name, "NONAME", 6) == 0)) {
         MESSAGE_INFO("Special preloading for Rayman 1/2\n");

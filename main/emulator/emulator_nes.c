@@ -127,7 +127,9 @@ int emulator_nes_run(const char *rom_path)
         .load = rewind_load,
         .preview = rewind_preview,
     };
+#if REWIND_ENABLE
     rewind_init(&rewind_backend);
+#endif
 
     const TickType_t frame_delay = pdMS_TO_TICKS(1000 / nes->refresh_rate);
     emulator_settings_t settings = {0};
